@@ -1,10 +1,11 @@
 === night check: greedy, 50 runs x 600 placements ===
 night reached in 50/50 runs, median placement 123.5
-end shares (mean): H 9.8%  F 3.3%  J 40.0%  S 20.0%  D 17.9%  M 1.5%  X 7.6%
-max single-terrain share across runs: 43.8%
-data centres at the end (median): clusters 55  largest 112.5 wedges (max 219)
+end shares (mean): H 9.6%  F 3.3%  J 48.3%  S 19.6%  D 10.2%  M 1.6%  X 7.5%
+max single-terrain share across runs: 53.7%
+data centres at the end (median): clusters 42  largest 65 wedges (max 153)
+cooled on 87.9% of data-centre cluster-steps
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 17.9% in 5..30%, towns kept 50>=45, dreams come true not built yet, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 10.2% in 5..30%, towns kept 50>=45, dreams come true not built yet, X>=10% in 0 runs, errors 0]
 
-(77.5s)
+(77.7s)

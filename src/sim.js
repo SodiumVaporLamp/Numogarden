@@ -14,6 +14,7 @@ const CFG = {
   WEIGHTS: { H: 0.26, F: 0.26, J: 0.28, S: 0.20 },
   NIGHT_WEIGHTS: { H: 0.26, D: 0.26, J: 0.28, S: 0.20 }, // at night the corpus is spent: data centres take the fields' place
   DC_AFTER_WAKE: true,  // ... but only once a town has built itself since nightfall
+  COOL_K: 6,            // data-centre wedges one sea contact can cool
   CRIT: 24,             // hamlet wedges for a town to start building itself (critical mass)
   MATURE: 40,           // steps a place must have been a town before it can wake up
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
@@ -352,7 +353,10 @@ function commitPending(state, ev) {
       state.stats.reclaim++;
       if (late) state.stats.reclaimAfter50++;
     } else if (p.cause === 'plex') state.stats.wild = (state.stats.wild || 0) + 1;
-    else state.stats.decline++;
+    else {
+      state.stats.decline++;
+      if (p.cause === 'overheat') state.stats.overheat = (state.stats.overheat || 0) + 1;
+    }
   }
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
@@ -561,6 +565,21 @@ function rules(state, C, ev) {
       G.warned = state.turn;
       pushEvent(state, ev, 'hungry', `${G.name} is hungry. It needs fields or sea next to it.`);
     }
+  }
+
+  // data centres: cooled by sea, one contact per COOL_K wedges; a hot cluster sheds its most exposed wedge to meadow
+  for (const g of C.byType.D.list) {
+    const sea = new Set();
+    for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
+    g.cool = sea.size; g.coolNeed = Math.ceil(g.size / CFG.COOL_K);
+    state.stats.dcSteps = (state.stats.dcSteps || 0) + 1;
+    if (g.cool >= g.coolNeed) { g.cooled = true; state.stats.dcCooled = (state.stats.dcCooled || 0) + 1; for (const x of g.w) setD(C, x, 0); continue; }
+    g.cooled = false;
+    const free = fx.hold.size ? g.w.filter(x => !held(x)) : g.w;
+    if (!free.length) continue;
+    const x = mostExposed(C, free, 'D', st);
+    const d = getD(C, x) + tick(x); setD(C, x, d);
+    if (d >= CFG.DECAY_T) addP(x, 'M', 'overheat');
   }
 
   // grokking: a fed place that has stayed the same size for a long time jumps a tier.
