@@ -15,6 +15,7 @@ const CFG = {
   NIGHT_WEIGHTS: { H: 0.26, D: 0.26, J: 0.28, S: 0.20 }, // at night the corpus is spent: data centres take the fields' place
   DC_AFTER_WAKE: true,  // ... but only once a town has built itself since nightfall
   COOL_K: 6,            // data-centre wedges one sea contact can cool
+  DREAM_EVERY: 6,       // a cooled data centre lays a dream (a rumor tile) on an open edge this often
   CRIT: 24,             // hamlet wedges for a town to start building itself (critical mass)
   MATURE: 40,           // steps a place must have been a town before it can wake up
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
@@ -39,7 +40,8 @@ const CFG = {
   SURGE_BONUS: 0.25,    // Surge: extra self-building chance,
   SURGE_MATURE: 0.5,    //   and towns wake after this share of MATURE
   WARP_TRIES: 2,        // Warp: building tries per step are multiplied by this
-  PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%
+  PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%;
+                                 // past the cap, Plex tiles from fits and gifts turn into stars too
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -234,6 +236,8 @@ function spawnLemur(state, d, k, ev, why) {
 
 function grant(state, item, ev) {
   if (state.hand.length >= CFG.HAND_MAX) { state.stars += 5; pushEvent(state, ev, 'reward', 'Hand full, so the bonus turns into +5★.'); return; }
+  // one cap for all wild land: past PLEX_CAP a Plex tile from a fit or a gift turns into stars
+  if (item.kind === 'x' && shares(state).X >= CFG.PLEX_CAP) { state.stars += 5; pushEvent(state, ev, 'reward', 'Wild land is plentiful, so the bonus turns into +5★.'); return; }
   state.hand.push(item);
 }
 function choose(state, which) {
@@ -364,6 +368,12 @@ function commitPending(state, ev) {
   }
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
+    if (s.dream) {
+      addTile(state, s.q, s.r, s.w, 'r', { dream: true });
+      state.stats.dreams = (state.stats.dreams || 0) + 1;
+      if (state.stats.dreams === 1) pushEvent(state, ev, 'dream', 'The data centres have started to dream. If the land believes a dream, it comes true.', { k: s.k });
+      continue;
+    }
     addTile(state, s.q, s.r, s.w, 'n', { auto: true });
     state.stats.spawn++;
     if (state.stats.firstSelfBuild == null) state.stats.firstSelfBuild = state.turn;
@@ -602,6 +612,28 @@ function rules(state, C, ev) {
     if (d >= CFG.DECAY_T) addP(x, 'M', 'overheat');
   }
 
+  // dreaming: every DREAM_EVERY steps a cooled data centre queues a rumor on one of its open edges,
+  // made of the hamlet, field, jungle and sea wedges it touches
+  const planned = new Set(state.spawns.map(s => s.k));
+  if (CFG.DREAM_EVERY > 0) for (const g of C.byType.D.list) {
+    const G = state.groups[g.tag];
+    if (!g.cooled || !G) continue;
+    if (G.lastDream == null) G.lastDream = state.turn;
+    if (state.turn - G.lastDream < CFG.DREAM_EVERY) continue;
+    const cells = [], touch = { H: 0, F: 0, J: 0, S: 0 }, seen = new Set();
+    for (const x of g.w) {
+      for (const y of adjW(C, x)) { const c = wt(C, y); if (c in touch && !seen.has(y)) { seen.add(y); touch[c]++; } }
+      if (C.nb[x] >= 0) continue;
+      const t = C.tiles[(x / 6) | 0], i = x % 6, q = t.q + DIRS[i][0], r = t.r + DIRS[i][1], kk = key(q, r);
+      if (!state.map[kk] && !planned.has(kk)) cells.push([q, r]);
+    }
+    if (!cells.length) continue;
+    const [q, r] = cells[rint(st, cells.length)];
+    state.spawns.push({ k: key(q, r), q, r, w: genTile(st, touch), tag: g.tag, dream: true });
+    planned.add(key(q, r));
+    G.lastDream = state.turn;
+  }
+
   // grokking: a fed place that has stayed the same size for a long time jumps a tier.
   // At city tier a town of 12+ wakes up under the usual rule, so a settled world starts moving again.
   for (const g of H.list) {
@@ -722,7 +754,6 @@ function rules(state, C, ev) {
   }
 
   // metropolises lay their own tiles onto empty edges
-  const planned = new Set(state.spawns.map(s => s.k));
   for (const g of H.list) {
     if (g.size < CFG.TIERS.H[4] || !g.fed) continue;
     const G = state.groups[g.tag]; if (!G) continue;
@@ -758,14 +789,17 @@ function rumors(state, ev) {
     }
     if (ok >= CFG.RUMOR_NEED) {
       t.kind = 'n'; t.real = state.turn;
-      state.stars += 10; state.stats.rumorsReal++;
-      pushEvent(state, ev, 'rumor', 'A rumor became real because enough of the land believed it (+10★).', { k });
+      state.stars += 10;
+      if (t.dream) state.stats.dreamsReal = (state.stats.dreamsReal || 0) + 1; else state.stats.rumorsReal++;
+      pushEvent(state, ev, 'rumor', t.dream ? 'A dream came true because enough of the land believed it (+10★).' : 'A rumor became real because enough of the land believed it (+10★).', { k });
       const zs = [];
       for (const d of DIRS) { const nb = state.map[key(t.q + d[0], t.r + d[1])]; if (nb && nb.z !== t.z) zs.push(nb.z); }
       const z2 = zs.length ? zs[rint(state.rng, zs.length)] : (t.z + 4) % 10;
       spawnLemur(state, mesh(t.z, z2), k, ev, 'rumor');
     } else if (state.turn - t.born > CFG.RUMOR_LIFE) {
       delete state.map[k];
+      // dreams fade quietly; there are many of them
+      if (t.dream) { state.stats.dreamsFaded = (state.stats.dreamsFaded || 0) + 1; continue; }
       state.stats.rumorsFaded++;
       pushEvent(state, ev, 'faded', 'A rumor faded. Nobody believed it.', { k });
     }
