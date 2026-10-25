@@ -25,6 +25,9 @@ const CFG = {
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
+  CURRENT_LINGER: 3,    // steps a current keeps flowing after its syzygy breaks
+  SURGE_BONUS: 0.25,    // Surge: extra self-building chance, and towns wake at half maturity
+  PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25] },
@@ -117,10 +120,10 @@ function newGame(seed) {
   const state = {
     v: 1, seed: seed >>> 0, rng: { s: (seed >>> 0) || 1 }, turn: 0, stars: 0, meter: 0, streak: 0, level: 0,
     map: {}, nextId: 1, nextTag: 1, offers: [], hand: [], choices: 0,
-    pending: [], spawns: [], builders: 0, ferries: 0,
+    pending: [], spawns: [], builders: 0, ferries: 0, currents: [],
     groups: {}, lemurs: [], events: [],
     stats: { sprawl: 0, spawn: 0, reclaim: 0, decline: 0, firstSelfBuild: null, selfBuildAfter50: 0, reclaimAfter50: 0,
-             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0 }
+             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0 }
   };
   addTile(state, 0, 0, ['H', 'H', 'F', 'F', 'S', 'J'], 'n');
   for (let i = 0; i < 3; i++) state.offers.push(genTile(state.rng));
@@ -301,6 +304,7 @@ function step(state, ev) {
   commitPending(state, ev);
   const C = clusters(state);
   tagAndTier(state, C, ev);
+  updateCurrents(state);
   rules(state, C, ev);
   rumors(state, ev);
   levelUp(state, ev);
@@ -322,7 +326,8 @@ function commitPending(state, ev) {
     } else if (p.cause === 'reclaim') {
       state.stats.reclaim++;
       if (late) state.stats.reclaimAfter50++;
-    } else state.stats.decline++;
+    } else if (p.cause === 'plex') state.stats.wild = (state.stats.wild || 0) + 1;
+    else state.stats.decline++;
   }
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
@@ -487,9 +492,13 @@ function rules(state, C, ev) {
   const H = C.byType.H, F = C.byType.F, J = C.byType.J, S = C.byType.S;
   const st = state.rng, P = state.pending;
   const pend = new Set();
+  const fx = currentFx(state);
+  const tid = x => C.tiles[(x / 6) | 0].id;
+  const held = x => fx.hold.has(tid(x));
+  const tick = x => fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast
   const addP = (x, to, cause) => {
     const t = C.tiles[(x / 6) | 0], i = x % 6, k = t.id + ':' + i;
-    if (pend.has(k) || t.w[i] === to || t.w[i] === 'X') return false;
+    if (pend.has(k) || t.w[i] === to || t.w[i] === 'X' || fx.hold.has(t.id)) return false;
     pend.add(k); P.push({ id: t.id, i, from: t.w[i], to, cause }); return true;
   };
 
@@ -512,9 +521,12 @@ function rules(state, C, ev) {
     if (g.supply >= g.need) { g.fed = true; for (const x of g.w) setD(C, x, 0); continue; }
     g.fed = false;
     if (g.size < CFG.STARVE_MIN) continue;
-    const x = mostExposed(C, g.w, 'H', st);
-    const d = getD(C, x) + 1; setD(C, x, d);
-    if (d >= CFG.DECAY_T) addP(x, 'M', 'starve');
+    const free = fx.hold.size ? g.w.filter(x => !held(x)) : g.w; // Hold: no decay in its area
+    if (free.length) {
+      const x = mostExposed(C, free, 'H', st);
+      const d = getD(C, x) + tick(x); setD(C, x, d);
+      if (d >= CFG.DECAY_T) addP(x, 'M', 'starve');
+    }
     const G = state.groups[g.tag];
     if (G && G.name && G.tier >= 2 && (G.warned == null || state.turn - G.warned > 25)) {
       G.warned = state.turn;
@@ -531,12 +543,45 @@ function rules(state, C, ev) {
       else if (c === 'J') { const jg = J.cid[y]; if (jg >= 0 && J.list[jg].size >= CFG.FALLOW_J) nearJ.push(x); }
     }
     if (worked) { for (const x of g.w) setD(C, x, 0); continue; }
-    if (!nearJ.length) continue;
-    let x = nearJ[0];
-    for (const y of nearJ) if (getD(C, y) > getD(C, x)) x = y;
-    if (getD(C, x) === 0) x = nearJ[rint(st, nearJ.length)];
-    const d = getD(C, x) + 1; setD(C, x, d);
+    const cand = fx.hold.size ? nearJ.filter(x => !held(x)) : nearJ;
+    if (!cand.length) continue;
+    let x = cand[0];
+    for (const y of cand) if (getD(C, y) > getD(C, x)) x = y;
+    if (getD(C, x) === 0) x = cand[rint(st, cand.length)];
+    const d = getD(C, x) + tick(x); setD(C, x, d);
     if (d >= CFG.DECAY_T) addP(x, 'M', 'fallow');
+  }
+
+  // Sink: each current wears down one hamlet or field wedge in its area, the most worn first
+  for (const area of fx.sink) {
+    const ws = [];
+    for (const t of area) {
+      if (fx.hold.has(t.id)) continue;
+      const a = C.idx[key(t.q, t.r)];
+      for (let i = 0; i < 6; i++) if (t.w[i] === 'H' || t.w[i] === 'F') ws.push(a * 6 + i);
+    }
+    if (!ws.length) continue;
+    let top = -1, best = [];
+    for (const x of ws) { const d = getD(C, x); if (d > top) { top = d; best = [x]; } else if (d === top) best.push(x); }
+    const x = best[rint(st, best.length)];
+    const d = getD(C, x) + tick(x); setD(C, x, d);
+    if (d >= CFG.DECAY_T) addP(x, 'M', 'sink');
+  }
+
+  // Plex: every few steps a current turns one wedge in its area wild, while wild land stays scarce
+  if (fx.plex.length) {
+    let nx = 0, nw = 0;
+    for (const t of C.tiles) for (const c of t.w) { nw++; if (c === 'X') nx++; }
+    for (const area of fx.plex) {
+      if (nx >= CFG.PLEX_CAP * nw) break;
+      const ws = [];
+      for (const t of area) {
+        if (fx.hold.has(t.id)) continue;
+        const a = C.idx[key(t.q, t.r)];
+        for (let i = 0; i < 6; i++) if (t.w[i] !== 'X' && !pend.has(t.id + ':' + i)) ws.push(a * 6 + i);
+      }
+      if (ws.length && addP(ws[rint(st, ws.length)], 'X', 'plex')) nx++;
+    }
   }
 
   // meadow next to jungle gets reclaimed
@@ -558,8 +603,10 @@ function rules(state, C, ev) {
   // sprawl: fed towns past critical mass build into neighbouring wedges
   for (const g of H.list) {
     const G = state.groups[g.tag];
+    let surge = false, warp = false;
+    if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
     // a town that has ever reached critical mass stays awake while it is still a town
-    const mature = G && G.townSince != null && state.turn - G.townSince >= CFG.MATURE;
+    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE / 2 : CFG.MATURE);
     const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
     const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
     const awake = mature && (big || flush);
@@ -568,7 +615,8 @@ function rules(state, C, ev) {
     let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + CFG.SPRAWL_SLOPE * Math.max(0, g.size - CFG.CRIT));
     if (g.trade) p += CFG.TRADE_BONUS;
     if (G && G.homed) p += CFG.HOME_BONUS;
-    const tries = 1 + Math.floor(Math.max(0, g.size - CFG.CRIT) / 20);
+    if (surge) p += CFG.SURGE_BONUS;
+    const tries = (1 + Math.floor(Math.max(0, g.size - CFG.CRIT) / 20)) * (warp ? 2 : 1); // Warp: builds twice per step
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
       const cand = [], wts = [];
@@ -679,8 +727,38 @@ function currentArea(state, c) {
   }
   return out;
 }
-/* currents in force this step (measurement only until the current rules land) */
-function activeCurrents(state) { return state.level >= 1 ? syzygyPairs(state) : []; }
+/* currents flow from weirdness 1 and linger a few steps after their syzygy breaks, so land
+   that shifts zones back and forth doesn't make them flicker. A removed tile ends its current. */
+function updateCurrents(state) {
+  if (state.level < 1) { state.currents = []; return; }
+  const live = new Map(syzygyPairs(state).map(c => [c.a + ':' + c.b, c]));
+  const out = [];
+  for (const c of state.currents || []) {
+    const k = c.a + ':' + c.b, p = live.get(k);
+    if (p) { Object.assign(c, p); c.gone = 0; live.delete(k); out.push(c); continue; }
+    const A = state.map[c.ka], B = state.map[c.kb];
+    if (!A || !B || A.id !== c.a || B.id !== c.b) continue;
+    if (++c.gone <= CFG.CURRENT_LINGER) out.push(c);
+  }
+  for (const p of live.values()) out.push(Object.assign(p, { since: state.turn, gone: 0 }));
+  state.currents = out;
+}
+function activeCurrents(state) { return state.currents || []; }
+/* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
+   Surge speeds towns up; Sink and Plex act once per current */
+function currentFx(state) {
+  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sink: [], plex: [] };
+  if (!CFG.CURRENT_FX) return fx;
+  for (const c of activeCurrents(state)) {
+    const area = currentArea(state, c);
+    // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end
+    if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b) fx.hold.add(t.id); }
+    else if (c.name === 'Warp' || c.name === 'Surge') for (const t of area) fx[c.name.toLowerCase()].add(t.id);
+    else if (c.name === 'Sink') fx.sink.push(area);
+    else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) fx.plex.push(area);
+  }
+  return fx;
+}
 
 /* clusters for the renderer: per wedge cluster size, tier and group tag, plus town labels */
 function view(state) {
@@ -720,7 +798,7 @@ function shares(state) {
 
 const Sim = { DIRS, BASE, XW, CFG, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
   newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
-  syzygyPairs, currentArea, activeCurrents };
+  syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);
