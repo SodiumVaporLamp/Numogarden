@@ -44,6 +44,8 @@ SEEDBASE=500000 node tools/harness.js         # held-out set
 SEEDBASE=900000 node tools/harness.js         # second held-out set
 SEEDBASE=1300000 node tools/harness.js        # added with currents (seen while fixing Hold)
 SEEDBASE=1700000 node tools/harness.js        # added with currents (confirmation set)
+SEEDBASE=2100000 node tools/harness.js        # added with the city rule (seen while fixing it)
+SEEDBASE=2500000 node tools/harness.js        # added with the city rule (confirmation set)
 node tools/harness.js 20 1000                 # long-game drift check (diagnostic, no pass line)
 node tools/harness.js 50 300 '{"CRIT":22}'    # try a CFG override without editing the file
 node tools/trace.js 325679                    # look inside one run
@@ -86,9 +88,10 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 - Supply: a hamlet cluster's supply is the number of distinct F or S wedges touching it. It needs `ceil(size / SUPPLY_K)` with SUPPLY_K = 3. This is linear on purpose (see the tuning history).
 - Hunger: clusters of `STARVE_MIN` (4)+ without enough supply decay one wedge at a time, preferring the most exposed. After `DECAY_T` (3) hungry steps a wedge becomes meadow. Fed clusters reset their decay.
 - Fallow fields: a field cluster touching no hamlet goes fallow beside a jungle of `FALLOW_J` (6)+, using the same decay to meadow.
-- Reclamation: meadow next to jungle turns jungle with p 0.35 per step. A jungle of `JCRIT` (12)+ takes neglected (decaying) H/F wedges with p 0.3.
+- Reclamation: meadow next to jungle turns jungle with p 0.35 per step. A jungle of `JCRIT` (12)+ takes neglected (decaying) H/F wedges with p 0.3 (0.1 for a city).
 - Waking up: a hamlet group is a **town** at 12 wedges. It can **wake** after `MATURE` (30) steps as a town, if it is at critical mass (`CRIT` = 24, or 12+ for a town that already hit city tier once) or very well fed (supply ≥ `FLUSH` (2) × need). It also has to be fed, with slack for one more wedge.
-- Self-building: an awake town builds into a neighbouring wedge with p = 0.35 + 0.02 per wedge above CRIT (max 0.85). Trade (two towns on one sea) adds +0.15, a homed name +0.10, and a large town gets more tries. Target preference: meadow 4, jungle 3, field 1, never sea or Plex. Eating its own fields can starve it, and that oscillation is intended.
+- Self-building: an awake town builds into a neighbouring wedge with p = 0.35 + 0.02 per wedge above CRIT (max 0.85). Trade (two towns on one sea) adds +0.15, a homed name +0.10, and a large town gets one more try per `TRY_EVERY` (20) wedges above CRIT. Target preference: meadow 4, jungle 3, field 1, never sea or Plex. Eating its own fields can starve it, and that oscillation is intended.
+- Cities (`CITY`, 24+ wedges) reinforce themselves, the Landian thread. A big jungle takes a decaying city wedge with p `CITY_BITE` (0.1) instead of 0.3, while fields stay at 0.3. The jungle bites at full speed inside a Sink area, from a deep jungle (30+), and while the city has under half the supply it needs. Self-building climbs with size twice as fast: +`CITY_SLOPE` (0.04) per wedge above CRIT, and one more try per `CITY_TRY_EVERY` (10) wedges. Hunger works as for any town, and supply stays linear (tuning history 5 and 11).
 - Metropolis (40+): every 10 steps, if fed, it plans a whole new tile on an empty edge, built to match its neighbours. It glows as a dashed crimson hex for one step.
 - Tiers: H 1/6/12/24/40 (hamlet, village, town, city, metropolis). S 10/20/35 give ferries 1/1/2. J 12/30. F 10/25 give harvest stars 5/10. A village names itself from a syllable generator. If the name's AQ zone equals the founding tile's zone it is **homed** (shown from weirdness 2).
 - Builders, earned at town (1), city (1) and metropolis (2), clear one tile. Ferries let you place up to 3 hexes from land.
@@ -121,22 +124,24 @@ The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZO
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 4.5 points at most. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs.
 
-**Baseline** (`results/`), identical config, with currents:
+**Baseline** (`results/`), identical config, with currents and the city rule:
 
 | seeds | pass line | max terrain share | runs with no self-build / no reclaim after 50 | median first self-build | biggest current rise | X max at t300 | errors |
 |---|---|---|---|---|---|---|---|
-| 1000 (tuning set) | PASS | 47.0% | 0 / 0 | 71.5 | Hold +1.2 | 8.6% | 0 |
-| 500000 (held out) | PASS | 47.1% | 0 / 0 | 79 | Hold +4.5 | 8.7% | 0 |
-| 900000 (held out) | PASS | 46.8% | 0 / 0 | 62.5 | Warp +3.2 | 8.5% | 0 |
-| 1300000 (seen during the Hold fix) | FAIL | 46.8% | 1 / 0 | 67 | Surge +2.4 | 8.7% | 0 |
-| 1700000 (untouched until the final check) | FAIL | 45.9% | 1 / 0 | 86 | Hold +1.9 | 8.3% | 0 |
+| 1000 (tuning set) | PASS | 43.5% | 0 / 0 | 74.5 | Hold +1.6 | 8.4% | 0 |
+| 500000 (held out) | PASS | 47.2% | 0 / 0 | 81 | Hold +3.6 | 8.3% | 0 |
+| 900000 (held out) | PASS | 47.7% | 0 / 0 | 60.5 | Hold +4.1 | 8.5% | 0 |
+| 1300000 (seen during the Hold fix) | FAIL | 46.9% | 1 / 0 | 78 | Surge +2.4 | 8.3% | 0 |
+| 1700000 (confirmation set for currents) | FAIL | 46.5% | 1 / 0 | 85.5 | Warp +1.7 | 8.5% | 0 |
+| 2100000 (seen while fixing the city rule) | PASS | 45.1% | 0 / 0 | 76.5 | Hold +3.1 | 8.5% | 0 |
+| 2500000 (untouched until the city check) | PASS | 43.1% | 0 / 0 | 62 | Hold +1.9 | 8.7% | 0 |
 
-Both failures are one stalled run in 50 (tuning history 10). The v1 rules fail 1300000 the same way and pass 1700000. v1's own numbers are in git history.
+Both failures are one stalled run in 50 (tuning history 10). The v1 rules fail 1300000 the same way and pass 1700000. Two medians sit close to the floor: 900000 at 60.5 and 2500000 at 62. Earlier numbers (v1, currents alone) are in git history.
 
 Other things the harness shows:
-- Greedy end shares at 300 with currents: about H 15–17%, F 17%, J 38%, S 20%, M 2%, X 7%. Currents add churn: about 260 decline and 270 reclaim per run, against 170 and 240 in v1.
-- **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy): with currents the land settles. Jungle goes from 38% at 300 to 40% at 400, then stays at 41% from 500 to 1000. Hamlets level off at 13–14%, X sits at its 8% cap, and the highest single-terrain share in any run is 44%. With current effects off (`results/harness-drift-1000-v1.txt`, the v1 rules) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
-- **The random bot** gets a town to wake in fewer than half the runs (20 to 24 of 50 with currents, 23 to 29 in v1), and late. Careful play matters, which is intended.
+- Greedy end shares at 300: about H 16%, F 17%, J 38%, S 20%, M 2%, X 7%. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
+- **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy): with currents and the city rule the land settles. Jungle goes from 36.5% at 300 to 39% at 500 and ends at 40% at 1000. Hamlets level off at 14–15%, X sits at its 8% cap, and the highest single-terrain share in any run is 43%. With currents alone jungle settled at 41% (top share 44%). Under the v1 rules (`results/harness-drift-1000-v1.txt`, current effects off and no city rule) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
+- **The random bot** gets a town to wake in about half the runs or fewer (20 to 29 of 50 now, 23 to 29 in v1), and late. Careful play matters, which is intended.
 
 **Phone check** (`tools/check.py`) on docs/index.html at 390×844 with touch:
 - 10 tap-driven placements land and raise the score. It taps the best spot that is on screen, since new worlds use a random seed.
@@ -160,15 +165,10 @@ Google Fonts are stubbed, so it runs offline.
 8. **Warp dominates by arithmetic.** The first draft of the currents criterion was "no current type above 50% of current tile-steps". It failed before any effect existed: Warp held 52–53% on all three seed sets. Modulo 9, H = 8, F = 6 and J = S = 1, so a tile's zone depends only on its H and F counts. All-jungle and all-sea tiles are zone 6 and all-hamlet tiles zone 3, so Warp (6::3) forms wherever towns meet the Outside. The AQ is the Lab's and can't be tuned, so the author re-registered the criterion relative to the no-effects baseline, before building the mechanic.
 9. **Hold kept itself alive.** In the first build of currents, Hold froze its whole area, including its own pair. The pair's zones could never change, so a Hold current lasted until a builder cleared one of its tiles. Hold rose 18–20 points over the no-effects baseline on all four sets then in use (1000, 500000, 900000, 1300000), reclamation fell by half, and one tuning-set run never self-built. The author chose to make Hold a calm eye: it holds the tiles around its pair but not the pair itself, so the pair can still shift and break. The rises dropped to 1–4.5 points. The zone-aware bot still pushes Hold up 18–23 points, so a player who chases zones will see a lot of Hold.
 10. **A rare stall on fresh seeds.** The two sets added with currents each have one greedy run in 50 with no self-build after placement 50: 1300000 (seen while fixing Hold) and 1700000 (untouched until the final check). The v1 rules also fail 1300000 (seed 1323757, with currents off) and pass 1700000. With currents the stalled runs are seeds 1315838 and 1874218. `node tools/trace.js 1874218` shows the pattern: the map fills with fed towns stuck at 19–21 wedges for 200 placements. They sit below critical mass, aren't fed well enough to wake early (supply 2× need), and nothing in the rules grows a settled town. The one town that passed 24 was starving and shrank. The author accepted currents with this on record, and the stall gets its own fix.
+11. **Slow hunger made cities sit idle.** The first city rule also made hungry city wedges take 6 steps to fall instead of 3. It failed on two sets: the median first self-build on 900000 fell to 59, under the floor, and on the fresh set 2100000 two runs had no self-build after placement 50 (currents alone pass that set). A trace of seed 2242542 showed a city overfed by placements to 58 wedges (supply 12, need 20). It starved slowly for 100 placements, building nothing because hungry towns don't build, and then sat at 42 wedges with no slack. With normal hunger both sets passed (900000 at 60.5, 2100000 at 76.5), so the author dropped the hunger part: cities resist the jungle and build faster, but go hungry like any town. The hunger part had come from Claude's proposal; the author's brief was about the jungle.
 
 ## Next (agreed with the author)
 
-- **Cities that reinforce themselves**, the Landian thread. From city tier (24 wedges):
-  - Hungry city wedges fall after 6 steps instead of 3.
-  - A big jungle takes a decaying city wedge with p 0.1 instead of 0.3. Fields stay at 0.3.
-  - Self-building climbs with size twice as fast: +0.04 per wedge above CRIT instead of 0.02, and an extra try per 10 wedges above CRIT instead of 20. Supply stays linear (tuning history 5).
-  - The protection is off inside a Sink area, against a deep jungle (30+), and for a city with under half the supply it needs.
-  - Build it as its own commit after the page, and check it on a fresh seed set.
 - **The stall** (tuning history 10). How to fix it is the author's call. Grokking, from the backlog, is one candidate.
 
 For currents the author took the spec's defaults: the pair and its neighbours as the area, a 3-step linger, weirdness 1, and the strengths as proposed.
@@ -191,7 +191,7 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 
 - **A world can stall.** About one greedy run in 50 ends up with only fed towns below critical mass, and nothing builds itself (tuning history 10).
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
-- **Jungle is the biggest terrain in long games**, about 41% from placement 500 on, and Plex sits at its 8% cap.
+- **Jungle is the biggest terrain in long games**, about 39–40% from placement 500 on, and Plex sits at its 8% cap.
 - **Lemurs are small to tap** (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.

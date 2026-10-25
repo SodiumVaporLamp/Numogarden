@@ -21,7 +21,11 @@ const CFG = {
   MEADOW_TO_JUNGLE: 0.35,
   JCRIT: 12,            // a jungle this big creeps into neglected land
   JUNGLE_INTO_DECAY: 0.3,
-  SPRAWL_BASE: 0.35, SPRAWL_SLOPE: 0.02, SPRAWL_MAX: 0.85,
+  SPRAWL_BASE: 0.35, SPRAWL_SLOPE: 0.02, SPRAWL_MAX: 0.85, TRY_EVERY: 20, // one more build try per TRY_EVERY wedges above CRIT
+  CITY: 24,             // a hamlet cluster this big is a city, and cities reinforce themselves:
+  CITY_BITE: 0.1,       //   a big jungle takes a decaying city wedge with this chance (full speed in a Sink area,
+                        //   from a deep jungle, or when the city has under half the supply it needs),
+  CITY_SLOPE: 0.04, CITY_TRY_EVERY: 10, // and building climbs with size twice as fast
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
@@ -496,6 +500,7 @@ function rules(state, C, ev) {
   const tid = x => C.tiles[(x / 6) | 0].id;
   const held = x => fx.hold.has(tid(x));
   const tick = x => fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast
+  const sunk = x => fx.sunk.has(tid(x));          // Sink: cities lose their protection
   const addP = (x, to, cause) => {
     const t = C.tiles[(x / 6) | 0], i = x % 6, k = t.id + ':' + i;
     if (pend.has(k) || t.w[i] === to || t.w[i] === 'X' || fx.hold.has(t.id)) return false;
@@ -516,6 +521,8 @@ function rules(state, C, ev) {
     g.supply = sup.size; g.need = needFor(g.size);
   }
   for (const hs of seaTowns.values()) if (hs.size >= 2) for (const gi of hs) H.list[gi].trade = true;
+  // a city holds its ground against the jungle unless it is starving badly
+  for (const g of H.list) g.shield = g.size >= CFG.CITY && 2 * g.supply >= g.need;
 
   for (const g of H.list) {
     if (g.supply >= g.need) { g.fed = true; for (const x of g.w) setD(C, x, 0); continue; }
@@ -591,12 +598,15 @@ function rules(state, C, ev) {
     let nj = false; for (const y of adjW(C, x)) if (wt(C, y) === 'J') { nj = true; break; }
     if (nj && rnd(st) < CFG.MEADOW_TO_JUNGLE) addP(x, 'J', 'reclaim');
   }
-  // big jungle creeps into neglected hamlets and fields
+  // big jungle creeps into neglected hamlets and fields; a city slows it down unless the jungle is deep
   for (const g of J.list) {
     if (g.size < CFG.JCRIT) continue;
+    const deep = g.size >= CFG.TIERS.J[2];
     for (const x of g.w) for (const y of adjW(C, x)) {
       const c = wt(C, y);
-      if ((c === 'H' || c === 'F') && getD(C, y) >= 1 && rnd(st) < CFG.JUNGLE_INTO_DECAY) addP(y, 'J', 'reclaim');
+      if ((c !== 'H' && c !== 'F') || getD(C, y) < 1) continue;
+      const city = c === 'H' && !deep && H.list[H.cid[y]].shield && !sunk(y);
+      if (rnd(st) < (city ? CFG.CITY_BITE : CFG.JUNGLE_INTO_DECAY)) addP(y, 'J', 'reclaim');
     }
   }
 
@@ -612,11 +622,12 @@ function rules(state, C, ev) {
     const awake = mature && (big || flush);
     if (!awake || !g.fed) continue;
     if (needFor(g.size + 1) > g.supply) continue;
-    let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + CFG.SPRAWL_SLOPE * Math.max(0, g.size - CFG.CRIT));
+    const city = g.size >= CFG.CITY, over = Math.max(0, g.size - CFG.CRIT);
+    let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + (city ? CFG.CITY_SLOPE : CFG.SPRAWL_SLOPE) * over);
     if (g.trade) p += CFG.TRADE_BONUS;
     if (G && G.homed) p += CFG.HOME_BONUS;
     if (surge) p += CFG.SURGE_BONUS;
-    const tries = (1 + Math.floor(Math.max(0, g.size - CFG.CRIT) / 20)) * (warp ? 2 : 1); // Warp: builds twice per step
+    const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? 2 : 1); // Warp: builds twice per step
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
       const cand = [], wts = [];
@@ -747,14 +758,14 @@ function activeCurrents(state) { return state.currents || []; }
 /* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
    Surge speeds towns up; Sink and Plex act once per current */
 function currentFx(state) {
-  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sink: [], plex: [] };
+  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [] };
   if (!CFG.CURRENT_FX) return fx;
   for (const c of activeCurrents(state)) {
     const area = currentArea(state, c);
     // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end
     if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b) fx.hold.add(t.id); }
     else if (c.name === 'Warp' || c.name === 'Surge') for (const t of area) fx[c.name.toLowerCase()].add(t.id);
-    else if (c.name === 'Sink') fx.sink.push(area);
+    else if (c.name === 'Sink') { fx.sink.push(area); for (const t of area) fx.sunk.add(t.id); }
     else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) fx.plex.push(area);
   }
   return fx;
