@@ -75,7 +75,7 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
   animation: pop .28s ease-out; transition: opacity .4s, transform .4s;
 }
 .toast.out { opacity: 0; transform: translateY(-6px); }
-.toast.lemur, .toast.rumor, .toast.faded { border-left-color: var(--warp); }
+.toast.lemur, .toast.rumor, .toast.faded, .toast.dc, .toast.absorb, .toast.dream { border-left-color: var(--warp); }
 .toast.level, .toast.reward, .toast.metro, .toast.spawn { border-left-color: var(--plex); }
 .toast.lost, .toast.hungry, .toast.jungle { border-left-color: #3B8558; }
 .toast.sea { border-left-color: #3E9CC0; }
@@ -216,10 +216,10 @@ const SQ3 = Math.sqrt(3);
 const CORN = [0, 1, 2, 3, 4, 5].map(i => [Math.cos(Math.PI / 3 * i), Math.sin(Math.PI / 3 * i)]);
 const EDGE = [0, 1, 2, 3, 4, 5].map(i => [Math.cos(Math.PI / 6 + Math.PI / 3 * i) * SQ3 / 2, Math.sin(Math.PI / 6 + Math.PI / 3 * i) * SQ3 / 2]);
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const COL = { H: '#EFD3AF', F: '#E8D57A', J: '#4E9B6A', S: '#7DC3D9', M: '#C4DCAA', X: '#F2D3E6' };
+const COL = { H: '#EFD3AF', F: '#E8D57A', J: '#4E9B6A', S: '#7DC3D9', D: '#4A5470', M: '#C4DCAA', X: '#F2D3E6' };
 const REGION_COL = { tc: '#9A7A00', warp: '#6E4FD0', plex: '#C23B5A' };
 const REGION_NAME = { tc: 'Time-Circuit', warp: 'Warp', plex: 'Plex' };
-const TERRAIN = { H: 'Hamlet', F: 'Field', J: 'Jungle', S: 'Sea', M: 'Meadow', X: 'Plex' };
+const TERRAIN = { H: 'Hamlet', F: 'Field', J: 'Jungle', S: 'Sea', D: 'Data centre', M: 'Meadow', X: 'Plex' };
 const TIER_H = ['hamlet', 'village', 'town', 'city', 'metropolis'];
 const CLASS_NAME = { chrono: 'Chronodemon', amphi: 'Amphidemon', xeno: 'Xenodemon' };
 const CURRENT_TXT = {
@@ -462,6 +462,7 @@ function updateHint() {
       txt += ` · +${e.m}★`;
       if (opens.length && state.level >= 1) txt += ' · opens ' + opens.map(o => `a ${o.name} current (${o.hi}::${o.lo})`).join(' and ');
       if (st.kind !== 'x') txt += '. Tap the tile to turn it.';
+      if (st.w.includes('D')) txt += ' Data centres need sea next to them.';
     }
   } else if (ui.mode === 'ferry') txt = 'Ferry: put this tile on any spot within 3 hexes of land.';
   else txt = (state.turn < 8 ? 'Tap a glowing spot to try the tile there.' : 'Pick a spot.') + (prefs.cleanFits ? ' Teal spots fit cleanly.' : '');
@@ -496,7 +497,7 @@ function openGift() {
     <h2>The land has a gift for you</h2>
     <p class="note">Pick one. It goes into your tray.</p>
     <div class="choices">
-      <button type="button" class="choice" id="pickPlex"><canvas width="116" height="116" id="cx"></canvas><span><b>Plex tile</b><span>Matches every edge. It joins clusters of every kind without adding to their size, so it works as a bridge between two towns, two seas or two jungles.</span></span></button>
+      <button type="button" class="choice" id="pickPlex"><canvas width="116" height="116" id="cx"></canvas><span><b>Plex tile</b><span>${S.shares(state).X >= S.CFG.PLEX_CAP ? 'Wild land is plentiful right now, so this gives +5★ instead of a tile.' : 'Matches every edge. It joins clusters of every kind without adding to their size, so it works as a bridge between two towns, two seas or two jungles.'}</span></span></button>
       <button type="button" class="choice" id="pickRumor"><canvas width="116" height="116" id="cr"></canvas><span><b>Rumor</b><span>A ghost tile. Once ${S.CFG.RUMOR_NEED} neighbours agree with its edges it becomes real, with +10★ and a visitor. If nobody believes it within ${S.CFG.RUMOR_LIFE} placements, it fades.</span></span></button>
     </div>
     <button type="button" class="btn sheet-close" id="later">Decide later</button>`);
@@ -521,22 +522,33 @@ function townOf(tl) {
   return null;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/* the data centre a tile belongs to: its size, sea contacts against the need, and the town name it took */
+function dataCentreOf(tl) {
+  const i = tl.w.indexOf('D'); if (i < 0) return null;
+  const inf = (view.info[tl.id] || [])[i]; if (!inf) return null;
+  const G = state.groups[inf.tag];
+  return { size: inf.size, cool: inf.cool, need: inf.need, name: G && G.name };
+}
 function openInspector(tl) {
   const L = state.level, z = tl.z, reg = S.region(z);
   const counts = {}; for (const c of tl.w) counts[c] = (counts[c] || 0) + 1;
   const chips = Object.keys(counts).map(c => `<span class="chip"><i class="dot" style="background:${COL[c]}"></i>${TERRAIN[c]} ×${counts[c]}</span>`).join('');
-  const town = townOf(tl);
-  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? 'A rumor' : town ? esc(town.name) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
+  const town = townOf(tl), dc = tl.kind === 'r' ? null : dataCentreOf(tl);
+  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? (tl.dream ? 'A dream' : 'A rumor') : town ? esc(town.name) : dc && dc.name ? esc(dc.name) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
   let lines = '';
   if (town) {
     const tier = S.tierOf('H', town.size || 0);
     lines += `<p>A ${TIER_H[Math.max(0, tier)]} of ${town.size} hamlet wedges${town.building ? ' that builds itself' : ''}.</p>`;
     if (L >= 2 && town.aq != null) lines += `<p class="readout">AQ ${esc(town.name)} = ${town.aq} → zone ${town.zone}${town.homed ? ' · the name comes home' : ''}</p>`;
   }
+  if (dc) {
+    const sea = n => n + ' sea wedge' + (n === 1 ? '' : 's');
+    lines += `<p>A data centre of ${dc.size} wedges. ${dc.cool >= dc.need ? `It is cooled by ${sea(dc.cool)} and needs ${dc.need}.` : `It needs ${sea(dc.need)} to stay cool and has ${dc.cool}, so it is running hot.`}${dc.name ? ' It took its name from a town it absorbed.' : ''}</p>`;
+  }
   if (tl.kind === 'r') {
     let ok = 0;
     for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
-    lines += `<p>${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
+    lines += `<p>${tl.dream ? 'A data centre dreamed this. ' : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
   }
   if (L >= 1) {
     const phrase = tl.w.join('');
@@ -561,7 +573,10 @@ function openInspector(tl) {
   }
   const decaying = tl.d.some((d, i) => d > 0 && (tl.w[i] === 'H' || tl.w[i] === 'F'));
   if (decaying) lines += `<p class="note">Vines are growing here. The hamlets or fields on this tile are going untended.</p>`;
-  lines += `<p class="note">${tl.auto ? 'This tile was laid by a city, on its own, at placement ' + tl.born + '.' : 'Placed at placement ' + tl.born + '.'}</p>`;
+  if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'D')) lines += `<p class="note">Part of this data centre is running hot.</p>`;
+  lines += `<p class="note">${tl.kind === 'r' ? (tl.dream ? 'Dreamed' : 'Placed') + ' at placement ' + tl.born + '.'
+    : tl.dream ? 'A data centre dreamed this, and it came true at placement ' + tl.real + '.'
+    : tl.auto ? 'This tile was laid by a city, on its own, at placement ' + tl.born + '.' : 'Placed at placement ' + tl.born + '.'}</p>`;
   openSheet(`<h2>${title}</h2><div class="chips">${chips}</div>${lines}<button type="button" class="btn sheet-close" id="closeS">Close</button>`);
   $('closeS').addEventListener('click', closeSheet);
 }
@@ -603,6 +618,7 @@ function openInfo() {
       <li>A town that has been a town for a while and reaches critical mass (${S.CFG.CRIT} hamlet wedges, or fewer if it is very well fed or has stayed the same size for a long time) builds itself into the land around it. A metropolis lays whole tiles.</li>
       <li>Glowing wedges will change on your next placement.</li>
       ${state.level >= 1 ? '<li>Two neighbouring tiles whose zones sum to nine open a current, and it changes the land around them. Sink wears it down, Hold keeps it as it is, Surge wakes towns sooner, Warp runs time twice as fast and Plex turns it wild. Tap a tile to see its currents.</li>' : ''}
+      ${state.dcSince != null ? '<li>At night the fields are spent and data centres arrive. They need sea next to them to stay cool, they take in hungry towns beside them, and they dream tiles onto their edges. A dream comes true once 3 neighbours agree with it.</li>' : ''}
       <li>Lakes give ferries, which let you start an island up to 3 hexes away. Towns and cities give builders, which clear a tile.</li>
     </ul>
     <h3>Weirdness</h3>
@@ -610,7 +626,7 @@ function openInfo() {
       <li>${L[1]}★: tiles show their zone. Zones that sum to nine across an edge attract visitors from the Pandemonium Matrix and open currents.</li>
       <li>${L[2]}★: towns add up their own names in AQ.</li>
       <li>${L[3]}★: the houses open their eyes.</li>
-      <li>${L[4]}★: night falls and the currents glow.</li>
+      <li>${L[4]}★: night falls and the currents glow. Once a town builds itself at night, data centres arrive.</li>
     </ul>
     <p class="readout">Now: ${state.stars}★ · weirdness ${state.level} · placement ${state.turn} · builders ${state.builders} · ferries ${state.ferries}</p>
     <h3>Chronicle</h3>
@@ -749,6 +765,33 @@ function drawVines(tl, i, d) {
     ctx.beginPath(); ctx.arc(x, y, 0.05, 0, Math.PI * 1.4); ctx.stroke();
   }
 }
+/* a data-centre wedge: a dark slab with a row of lights that ripple, steam where it touches sea,
+   and a blinking red light while its cluster runs hot. At night only the lights are drawn again, glowing. */
+function seaBeside(tl, i) {
+  if (tl.w[(i + 1) % 6] === 'S' || tl.w[(i + 5) % 6] === 'S') return true;
+  const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
+  return !!(nb && nb.kind !== 'r' && nb.w[(i + 3) % 6] === 'S');
+}
+function drawDataCentre(tl, i, inf, t, nightPass) {
+  const base = ctx.globalAlpha, seed = hh(tl.id, i * 31), hot = inf && inf.cool < inf.need, tt = RM ? 0 : t;
+  const [x, y] = wpt(i, 0.4, 0.4), bw = 0.3, bh = 0.13;
+  if (!nightPass) {
+    ctx.fillStyle = '#2B3142'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
+    ctx.fillStyle = '#5C6680'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, 0.02);
+    if (seaBeside(tl, i)) for (let k = 0; k < 2; k++) {
+      const ph = (tt * 0.25 + seed + k * 0.5) % 1;
+      ctx.globalAlpha = base * 0.7 * (1 - ph); ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath(); ctx.arc(x + (k - 0.5) * 0.08, y - bh / 2 - 0.04 - ph * 0.16, 0.025 + ph * 0.03, 0, 7); ctx.fill();
+    }
+  }
+  for (let k = 0; k < 4; k++) {
+    const red = hot && k === 3;
+    ctx.globalAlpha = base * (red ? (RM || Math.sin(tt * 6 + seed * 20) > 0 ? 1 : 0.3) : RM ? 0.9 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * 3 - k * 0.8 + seed * 9)));
+    ctx.fillStyle = red ? '#FF5A6E' : nightPass ? '#B8FFF6' : '#7FE6DA';
+    ctx.beginPath(); ctx.arc(x - bw * 0.33 + k * bw * 0.22, y + 0.015, nightPass ? 0.018 : 0.013, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = base;
+}
 function drawTiles(t) {
   const L = state.level, detail = cam.s >= 16, pad = cam.s * 1.2;
   for (const k in state.map) {
@@ -768,7 +811,14 @@ function drawTiles(t) {
       else if (w === 'J') drawJungle(tl, i, info[i], t, L);
       else if (w === 'S') drawSea(tl, i, info[i], t, L);
       else if (w === 'M') drawMeadow(tl, i);
-      if (tl.d[i] > 0 && (w === 'H' || w === 'F')) drawVines(tl, i, tl.d[i]);
+      else if (w === 'D') drawDataCentre(tl, i, info[i], t, false);
+      if (tl.d[i] > 0 && (w === 'H' || w === 'F' || w === 'D')) drawVines(tl, i, tl.d[i]);
+    }
+    if (rumor && tl.dream) { // a dream: faint scanlines that drift down
+      ctx.save(); hexPath(0.97); ctx.clip();
+      ctx.strokeStyle = 'rgba(110,79,208,.55)'; ctx.lineWidth = 1 / cam.s;
+      for (let yy = -0.9 + (RM ? 0 : (t * 0.08) % 0.12); yy < 0.9; yy += 0.12) { ctx.beginPath(); ctx.moveTo(-1, yy); ctx.lineTo(1, yy); ctx.stroke(); }
+      ctx.restore();
     }
     if (tl.kind === 'x') { ctx.strokeStyle = '#C23B5A'; ctx.lineWidth = 0.045; ctx.beginPath(); ctx.arc(0, 0, 0.26, 0, 7); ctx.stroke(); }
     hexPath(1); ctx.lineWidth = (rumor ? 2 : 1) / cam.s;
@@ -789,7 +839,10 @@ function drawNight(t) {
     if (sx < -pad || sx > W + pad || sy < -pad || sy > H + pad) continue;
     setT(c[0], c[1]);
     const info = view.info[tl.id] || [];
-    for (let i = 0; i < 6; i++) if (tl.w[i] === 'H') drawHamlet(tl, i, info[i], t, state.level, true);
+    for (let i = 0; i < 6; i++) {
+      if (tl.w[i] === 'H') drawHamlet(tl, i, info[i], t, state.level, true);
+      else if (tl.w[i] === 'D') drawDataCentre(tl, i, info[i], t, true);
+    }
   }
   ctx.globalCompositeOperation = 'source-over';
 }
@@ -826,14 +879,14 @@ function drawPending(t) {
     const tl = idMap[p.id]; if (!tl) continue;
     const c = hexCenter(tl.q, tl.r); setT(c[0], c[1]);
     wedgePath(p.i, 0.97); ctx.globalAlpha = pulse; ctx.fillStyle = COL[p.to]; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.lineWidth = 2.2 / cam.s; ctx.strokeStyle = p.to === 'H' ? '#E0705A' : p.to === 'M' ? '#7FA866' : p.to === 'X' ? '#C23B5A' : '#2F7A4D';
+    ctx.lineWidth = 2.2 / cam.s; ctx.strokeStyle = p.to === 'H' ? '#E0705A' : p.to === 'M' ? '#7FA866' : p.to === 'X' ? '#C23B5A' : p.to === 'D' ? '#3FB8C4' : '#2F7A4D';
     ctx.setLineDash([4 / cam.s, 3 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
-  for (const sp of state.spawns) {
+  for (const sp of state.spawns) { // a metropolis tile (crimson) or a dream (violet) about to be laid
     const c = hexCenter(sp.q, sp.r); setT(c[0], c[1]);
-    ctx.globalAlpha = pulse * 0.8;
+    ctx.globalAlpha = pulse * (sp.dream ? 0.45 : 0.8);
     for (let i = 0; i < 6; i++) { wedgePath(i); ctx.fillStyle = COL[sp.w[i]] || COL.H; ctx.fill(); }
-    ctx.globalAlpha = 1; hexPath(1); ctx.lineWidth = 2.4 / cam.s; ctx.strokeStyle = '#C23B5A'; ctx.setLineDash([6 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = 1; hexPath(1); ctx.lineWidth = 2.4 / cam.s; ctx.strokeStyle = sp.dream ? '#6E4FD0' : '#C23B5A'; ctx.setLineDash([6 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
 }
 function drawValid() {
@@ -930,25 +983,31 @@ function drawText(now) {
       ctx.fillStyle = '#4B3A9A'; ctx.fillText(`${ok}/${S.CFG.RUMOR_NEED}`, sx, sy);
     }
   }
-  // town labels, biggest first, skipping overlaps
+  // town labels, biggest first, then data centres that took a town's name (dark), skipping overlaps
   const placed = [];
-  const labels = view.labels.slice().sort((a, b) => b.size - a.size);
+  const labels = view.labels.slice().sort((a, b) => b.size - a.size)
+    .concat((view.dlabels || []).filter(l => l.size >= S.CFG.TIERS.H[1]).sort((a, b) => b.size - a.size).map(l => Object.assign({ dc: true }, l)));
+  const named = new Set(); // a town split in pieces keeps its name on the largest piece only
   for (const lb of labels) {
+    const nk = (lb.dc ? 'd:' : 'h:') + lb.name;
+    if (named.has(nk)) continue;
+    named.add(nk);
     const c = hexCenter(lb.q, lb.r), [sx, sy0] = toScreen(c[0], c[1]);
     const sy = sy0 - Math.min(40, s * 0.75);
     if (sx < -80 || sx > W + 80 || sy < -40 || sy > H + 40) continue;
     ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif';
     const name = lb.name, tw = ctx.measureText(name).width;
-    const sub = L >= 2 ? `AQ ${lb.aq} → ${lb.zone}${lb.homed ? ' ◎' : ''}` : TIER_H[Math.max(0, lb.tier)];
+    const sub = lb.dc ? 'data centre' : L >= 2 ? `AQ ${lb.aq} → ${lb.zone}${lb.homed ? ' ◎' : ''}` : TIER_H[Math.max(0, lb.tier)];
     ctx.font = '500 10px "IBM Plex Mono", monospace';
     const sw = ctx.measureText(sub).width;
     const bw = Math.max(tw, sw) + 18, bh = 34, x0 = sx - bw / 2, y0 = sy - bh / 2;
     if (placed.some(p => x0 < p[2] && x0 + bw > p[0] && y0 < p[3] && y0 + bh > p[1])) continue;
     placed.push([x0, y0, x0 + bw, y0 + bh]);
-    ctx.fillStyle = 'rgba(246,250,247,.94)'; ctx.strokeStyle = lb.homed && L >= 2 ? '#C23B5A' : 'rgba(30,43,47,.25)'; ctx.lineWidth = 1;
+    ctx.fillStyle = lb.dc ? 'rgba(43,49,66,.94)' : 'rgba(246,250,247,.94)';
+    ctx.strokeStyle = lb.dc ? 'rgba(127,230,218,.6)' : lb.homed && L >= 2 ? '#C23B5A' : 'rgba(30,43,47,.25)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, bw, bh, 9) : ctx.rect(x0, y0, bw, bh); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#1E2B2F'; ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif'; ctx.fillText(name, sx, y0 + 12);
-    ctx.fillStyle = L >= 2 ? REGION_COL[S.region(lb.zone)] : '#586A6C'; ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.fillText(sub, sx, y0 + 26);
+    ctx.fillStyle = lb.dc ? '#E6FFFB' : '#1E2B2F'; ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif'; ctx.fillText(name, sx, y0 + 12);
+    ctx.fillStyle = lb.dc ? '#7FE6DA' : L >= 2 ? REGION_COL[S.region(lb.zone)] : '#586A6C'; ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.fillText(sub, sx, y0 + 26);
   }
   if (L >= 1 && s >= 34) {
     ctx.font = '500 10px "IBM Plex Mono", monospace';

@@ -890,7 +890,12 @@ function view(state) {
       const tier = tierOf(T, g.size);
       let tag = 0;
       for (const x of g.w) { const tg = C.tiles[(x / 6) | 0].tg[x % 6]; if (tg) { tag = tg; break; } }
-      for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; (info[t.id] || (info[t.id] = []))[x % 6] = { size: g.size, tier, tag }; }
+      const cell = { size: g.size, tier, tag };
+      if (T === 'D') { // cooling, for the page: sea contacts against the need
+        const sea = new Set(); for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
+        cell.cool = sea.size; cell.need = Math.ceil(g.size / CFG.COOL_K);
+      }
+      for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; (info[t.id] || (info[t.id] = []))[x % 6] = cell; }
       g.tag = tag; g.tier = tier;
     }
   }
@@ -902,15 +907,16 @@ function view(state) {
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
     labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), q: sx / g.size, r: sy / g.size });
   }
-  // data centres that took a town's name
-  const dlabels = [];
+  // data centres that took a town's name; a split data centre keeps its name on its largest piece
+  const byName = new Map();
   for (const g of C.byType.D.list) {
     const G = state.groups[g.tag];
-    if (!G || !G.name) continue;
+    if (!G || !G.name || (byName.has(G.name) && byName.get(G.name).size >= g.size)) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    dlabels.push({ name: G.name, aq: G.aq, zone: G.zone, size: g.size, q: sx / g.size, r: sy / g.size });
+    byName.set(G.name, { name: G.name, aq: G.aq, zone: G.zone, size: g.size, q: sx / g.size, r: sy / g.size });
   }
+  const dlabels = [...byName.values()];
   const seas = C.byType.S.list.map(g => {
     let sx = 0, sy = 0; for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
     return { size: g.size, q: sx / g.size, r: sy / g.size };

@@ -50,6 +50,7 @@ SEEDBASE=2500000 node tools/harness.js        # added with the city rule (confir
 SEEDBASE=2900000 node tools/harness.js        # added with grokking (confirmation set for its first version)
 SEEDBASE=3300000 node tools/harness.js        # added with grokking (confirmation set for 18+ towns)
 SEEDBASE=3700000 node tools/harness.js        # added with maturity 40 (confirmation set)
+SEEDBASE=4100000 node tools/harness.js        # added with data centres (confirmation set; night check too)
 node tools/harness.js 20 1000                 # long-game drift check (diagnostic, no pass line)
 node tools/night.js                           # night check for data centres (50 x 600, greedy)
 node tools/harness.js 50 300 '{"CRIT":22}'    # try a CFG override without editing the file
@@ -59,9 +60,9 @@ python3 build.py && python3 tools/check.py    # build the page and run the phone
 
 ## The game as built (v1)
 
-**Board.** Flat-top hexes in axial coordinates. `DIRS[i]` is the neighbour across edge i (edge midpoints at 30+60i degrees). Each tile is six wedges; wedge i faces edge i and touches wedge `(i+3)%6` of that neighbour, and wedges i and i+1 of the same tile touch each other. Terrains: **H** Hamlet (little compute towns with glowing windows), **F** Field (the corpus), **J** Jungle (the Outside), **S** Sea (Lemurian), plus **M** Meadow (land in between) and **X** Plex (wild). M matches F and J; X matches everything.
+**Board.** Flat-top hexes in axial coordinates. `DIRS[i]` is the neighbour across edge i (edge midpoints at 30+60i degrees). Each tile is six wedges; wedge i faces edge i and touches wedge `(i+3)%6` of that neighbour, and wedges i and i+1 of the same tile touch each other. Terrains: **H** Hamlet (little compute towns with glowing windows), **F** Field (the corpus), **J** Jungle (the Outside), **S** Sea (Lemurian), **D** Data centre (night only), plus **M** Meadow (land in between) and **X** Plex (wild). M matches F and J; D matches only D and X; X matches everything.
 
-**Tiles.** Endless deck, no fail state. Three offers plus up to four gift tiles in hand. Generated tiles have 1–3 contiguous terrain arcs, weighted H .26, F .26, J .28, S .20. A new world starts with a fixed first tile and five greedy placements, the "seed island".
+**Tiles.** Endless deck, no fail state. Three offers plus up to four gift tiles in hand. Generated tiles have 1–3 contiguous terrain arcs, weighted H .26, F .26, J .28, S .20. At night, once a town has built itself since nightfall, D takes F's weight (see Data centres). A new world starts with a fixed first tile and five greedy placements, the "seed island".
 
 **Zones.** A tile's zone is the AQ total of its six terrain letters reduced to one digit (e.g. `HHFFSJ` = 111 → 3, Warp). Plex tiles are zone 0. Zones recompute whenever a tile's wedges change, so the land shifting moves the zones. Regions use the Lab's colours: Time-Circuit 1,2,4,5,7,8 gold; Warp 3,6 violet; Plex 9,0 crimson.
 
@@ -81,6 +82,13 @@ python3 build.py && python3 tools/check.py    # build the page and run the phone
 
 Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there. `CFG.CURRENT_FX = false` keeps the tracking but turns the effects off, which replays v1 exactly; the harness uses it as its baseline. Warp is the common current and the others are rarer finds (tuning history 8).
 
+**Data centres (night).** SVL's lead idea, built 2026-10-25. At night (weirdness 4), once a town has built itself since nightfall (`nightDeck`, tuning history 15), the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight. The chronicle says "The fields are spent. Data centres start to arrive." D clusters like the other terrains and matches only D and X. A whole D tile is AQ 78, zone 6, so beside a whole hamlet tile (zone 3) it opens Djynxx's Warp current: the machines speed up the towns next to them. One need and two verbs:
+- Cooling, by sea only: a D cluster needs one sea contact per `COOL_K` (6) D wedges, on the supply pattern. Short of that, its most exposed D wedge runs hot and falls to meadow after `DECAY_T` steps, and jungle follows. Hold and Warp act on it as on hunger.
+- Absorbing: a starving hamlet wedge beside D becomes D instead of meadow. An unnamed data centre that absorbs part of a named town takes its name ("Numbleford is becoming a data centre."), and a town absorbed whole is reported as part of a data centre instead of taken by the Outside.
+- Dreaming: every `DREAM_EVERY` (6) steps a cooled cluster queues a rumor on one of its open edges, laid next step like metropolis tiles. Its arcs are as in `genTile`, with terrains weighted by the H/F/J/S wedges the cluster touches, so it can dream fields back. The rumor rules then apply: 3 real matching neighbours make it real (+10★, a visitor), and it fades after 15. Only the first dream and dreams that come true get a chronicle line.
+
+No rule eats fields: towns live on fields or sea as before, so inland towns run short at night. Dreams made perfect fits common, which is why `PLEX_CAP` covers Plex tiles too (tuning history 16). A scratch prototype on the v1 rules (587916c) shaped these rules; every number here was re-measured on the current rules.
+
 **Time.** The world advances one step per placement, never in real time, so walking away changes nothing. Each step (`step()` in sim.js):
 1. Commit last step's pending changes (each re-validated), then lay any planned metropolis tiles.
 2. Recompute clusters per terrain with union-find. X wedges join clusters of every type but don't count toward size.
@@ -88,6 +96,7 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 4. Update the currents (weirdness 1+).
 5. Apply the living rules and the currents' effects, which schedule next step's changes. Those wedges glow on the board.
 6. Settle rumors and level up the weirdness.
+7. At night, switch the deck to data centres once a town has built itself since nightfall.
 
 **The living rules (CFG in sim.js).**
 - Supply: a hamlet cluster's supply is the number of distinct F or S wedges touching it. It needs `ceil(size / SUPPLY_K)` with SUPPLY_K = 3. This is linear on purpose (see the tuning history).
@@ -106,13 +115,15 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 1. Tiles show zones; syzygies, lemurs and currents start. Currents are drawn faint, with a light tint over the land they act on.
 2. Towns show AQ readouts; fields turn to dashed tokens; violet roofs and antennas.
 3. Houses grow eyes that follow your finger; the ground dusks; eyes in deep jungle.
-4. Night, lit windows, and the currents glow bright. A current is drawn as animated dashes between its pair, running from the higher zone to the lower, coloured by the region of its difference, and it fades while it lingers.
+4. Night, lit windows, and the currents glow bright. A current is drawn as animated dashes between its pair, running from the higher zone to the lower, coloured by the region of its difference, and it fades while it lingers. Once a town builds itself at night, data centres arrive.
 
 **Page.** One-screen canvas game. HUD (wordmark, stars, gift meter, weirdness pips), tray (offers plus gifts), tools (Undo, Turn, Place, Build, Ferry), sheets (gift choice, tile inspector, lemur card, info with settings, chronicle and New world). Controls:
 - Tap a spot to preview at the best rotation, tap the preview to turn it, then Place.
 - Drag to pan and pinch to zoom; wheel zoom and keys R, Enter and Z on desktop.
 
 The placement hint names any current a placement would open ("opens a Hold current (7::2)"). The tile inspector lists the currents acting on a tile, with the carrier and whether it is a pair tile or fading. A sheet opened by a board tap ignores scrim clicks for 400 ms, because the tap's own click lands on the new scrim; in v1 that closed the inspector and lemur cards as soon as they opened. A world saved before currents picks them up on load.
+
+Data centres are dark slate slabs with a row of cyan lights that ripple; they puff steam where they touch sea, show a blinking red light while their cluster runs hot, and glow at night like the windows. Dreams are rumor ghosts with faint drifting scanlines, and a dream about to be laid glows as a dashed violet hex. A data centre that took a town's name gets a dark label ("data centre"); a split town or data centre keeps its label on its largest piece only. The inspector gives a data centre's size, sea contacts against its need and where its name came from, and calls a dream a dream. The hint adds "Data centres need sea next to them." for tiles with D, and the gift sheet says when wild land is at the cap, so the Plex choice gives stars instead.
 
 Settings sit in the info sheet. **Show clean fits** is off by default: when on, clean-fit spots are drawn in teal and the hint adds "Teal spots fit cleanly." When off, every open spot looks alike except for a lighter fill where at least one edge matches. Settings are saved per device under `numogarden-prefs`, apart from the world, so New world keeps them.
 
@@ -136,7 +147,7 @@ Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 d
 - No run has Plex (X) at 10% or more at the end.
 - Zero errors.
 
-It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%. With step 1 (`results/night-seeds-*.txt`, D arriving with no needs) it passes on all three sets: end shares H 10%, F 3–4%, J 40%, S 20%, D 18%, X 8%, about 55 data-centre clusters with the largest near 100–110 wedges, and towns kept in 49–50 of 50. With step 2 (cooling) it still passes on all three: data centres are cooled on 88% of their cluster-steps and settle at 10% of the land, about 40 clusters with the largest near 60 wedges. Hot inland data centres fall to meadow and jungle takes them, so jungle rises to 48% and the top share in any run to 54–57%, close to the 60% line. With step 3 (absorbing) it passes on all three: about 90 hamlet wedges are absorbed per run, data centres grow to 11% with the largest near 85–95 wedges, jungle eases to 47%, and the top share is 53–55%. With step 4 (dreaming, plus the shared Plex cap from tuning history 16) it passes in full on all three: about 180–190 dreams are laid per run and a median of 17 come true, Plex holds at 8.0% with no run at 10%, data centres are 10–11% of the land, and towns are kept in 50 of 50.
+It ran on seed sets 1000, 500000 and 900000 while building, then on the fresh set 4100000 when data centres were done: PASS (D 10.7%, 178 dreams laid and 17 come true, Plex 8.0%, top share 53.5%, towns kept in 50 of 50). The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%. With step 1 (`results/night-seeds-*.txt`, D arriving with no needs) it passes on all three sets: end shares H 10%, F 3–4%, J 40%, S 20%, D 18%, X 8%, about 55 data-centre clusters with the largest near 100–110 wedges, and towns kept in 49–50 of 50. With step 2 (cooling) it still passes on all three: data centres are cooled on 88% of their cluster-steps and settle at 10% of the land, about 40 clusters with the largest near 60 wedges. Hot inland data centres fall to meadow and jungle takes them, so jungle rises to 48% and the top share in any run to 54–57%, close to the 60% line. With step 3 (absorbing) it passes on all three: about 90 hamlet wedges are absorbed per run, data centres grow to 11% with the largest near 85–95 wedges, jungle eases to 47%, and the top share is 53–55%. With step 4 (dreaming, plus the shared Plex cap from tuning history 16) it passes in full on all three: about 180–190 dreams are laid per run and a median of 17 come true, Plex holds at 8.0% with no run at 10%, data centres are 10–11% of the land, and towns are kept in 50 of 50.
 
 The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
 
@@ -156,6 +167,7 @@ The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZO
 | 2900000 (confirmation set for the first grokking) | PASS | 50.5% | 0 / 0 | 66.5 | Warp +3.6 | 8.2% | 0 |
 | 3300000 (confirmation set for 18+ grokking) | PASS | 50.9% | 0 / 0 | 79 | Hold +2.0 | 8.3% | 0 |
 | 3700000 (confirmation set for maturity 40) | PASS | 49.7% | 0 / 0 | 72.5 | Hold +1.9 | 8.6% | 0 |
+| 4100000 (untouched until the data-centre check) | PASS | 52.0% | 0 / 0 | 103.5 | Warp +2.6 | 8.3% | 0 |
 
 All ten sets pass. The tightest median is 66.5 (2900000); night comes later, so data centres don't move it. Since cooling the top share is 49–55%, up from 44–50% before data centres, because jungle takes hot data centres. Earlier numbers (v1, currents alone, the first grokking, maturity 30, before data centres) are in git history.
 
@@ -195,14 +207,9 @@ Google Fonts are stubbed, so it runs offline.
 
 ## Next (agreed with the author)
 
-- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4), once a town has built itself since nightfall, the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight (`deckOf`, `nightDeck`; tuning history 15). The chronicle says "The fields are spent. Data centres start to arrive." **Built so far: steps 1 to 4**, all the rules; the page is next. Only the first dream and dreams that come true get a chronicle line; faded dreams are only counted. The rules:
-  - D clusters like the other terrains and matches only D and X. A whole D tile is AQ 78, zone 6, so beside a whole hamlet tile (zone 3) it opens Djynxx's Warp current.
-  - Cooling, by sea only: a D cluster needs one sea contact per 6 D wedges, on the supply pattern. Short of that, its most exposed D wedge decays and falls to meadow after `DECAY_T` steps, and jungle follows.
-  - Absorbing: a starving hamlet wedge beside D becomes D instead of meadow, and the data centre takes the town's name, so towns turn into machines instead of vanishing.
-  - Dreaming: every 6 steps a cooled cluster queues a rumor on one of its open edges, laid next step like metropolis tiles. Its arcs are as in `genTile`, with terrains weighted by the H/F/J/S wedges the cluster touches. The rumor rules then apply: 3 real matching neighbours make it real (+10★, a visitor), and it fades after 15.
-  - No rule eats fields. Towns live on fields or sea as before.
-  - Build order, harness-checked after each: D arrives at night with no needs; cooling; absorbing, with the name; dreaming; the page (how D looks, hint and inspector). The live page gets it in one push, once it can draw D.
-  - A scratch prototype on the v1 rules (587916c) shaped these rules. Its numbers are not leaned on; everything is re-measured on current rules.
+- Nothing is queued. The backlog below is open, and the author picks what comes next.
+
+For data centres the author chose Field out and D in at night, cooling by sea only, the letter D, no eating fields, and absorbed towns lending their names; then the machines waiting for a town that builds itself at night (tuning history 15) and one shared Plex cap (16). Built in five harness-checked steps: D arriving, cooling, absorbing, dreaming, the page.
 
 For currents the author took the spec's defaults: the pair and its neighbours as the area, a 3-step linger, weirdness 1, and the strengths as proposed.
 
@@ -222,7 +229,7 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 ## Known limitations
 
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
-- **Jungle is the biggest terrain in long games**, about 40–41% from placement 500 on, and Plex sits at its 8% cap.
+- **Jungle is the biggest terrain in long games.** With data centres it is about 46% at placement 600, as hot inland data centres fall to it, and the top share in any run is 51–54%, nearer the 60% line than before. Plex sits at its 8% cap.
 - **Lemurs are small to tap** (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.
