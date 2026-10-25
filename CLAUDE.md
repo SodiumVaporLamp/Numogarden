@@ -12,6 +12,14 @@ A zen hex-tile game for the browser, played mostly on an iPhone. You place land;
 - **Tone.** Cute on the surface, weird underneath, and the weirdness is earned by growth. Copy is plain and short: no em-dash asides, no "not X but Y", no emoji. Name things the way a player would.
 - **The author decides scope.** Suggest additions in a line; don't build them unasked.
 
+## Design principles
+
+- **Zen.** Endless deck, no fail state, no timers.
+- **No monetization.** No ads or monetization hooks, ever, and none of the scarcity tricks freemium games use.
+- **Emergence over scripting.** A few rules that pull against each other, one verb per terrain. Cut any rule that doesn't interact with another.
+- **Weirdness earns its place.** Weird elements do something in the rules, and the weirdness escalates with growth.
+- **Order.** Backlog items are all welcome candidates, but currents come first.
+
 ## Files
 
 ```
