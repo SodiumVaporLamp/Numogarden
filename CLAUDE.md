@@ -133,7 +133,7 @@ Both failures are one stalled run in 50 (tuning history 10). The v1 rules fail 1
 
 Other things the harness shows:
 - Greedy end shares at 300 with currents: about H 15–17%, F 17%, J 38%, S 20%, M 2%, X 7%. Currents add churn: about 260 decline and 270 reclaim per run, against 170 and 240 in v1.
-- **Long games** (`results/harness-drift-600.txt`, 20 seeds × 600): jungle keeps gaining slowly, from 37% at 300 to 39%, 41% and 43% at 400, 500 and 600. Hamlets fall from 18% to 14%, and the highest single-terrain share in any run is 46%. That is no runaway by 600, but it isn't clearly settled either. Run a 1000+ check once currents add Sink.
+- **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy): with currents the land settles. Jungle goes from 38% at 300 to 40% at 400, then stays at 41% from 500 to 1000. Hamlets level off at 13–14%, X sits at its 8% cap, and the highest single-terrain share in any run is 44%. With current effects off (`results/harness-drift-1000-v1.txt`, the v1 rules) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
 - **The random bot** gets a town to wake in fewer than half the runs (20 to 24 of 50 with currents, 23 to 29 in v1), and late. Careful play matters, which is intended.
 
 **Phone check** (`tools/check.py`) on docs/index.html at 390×844 with touch:
@@ -189,7 +189,7 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 
 - **A world can stall.** About one greedy run in 50 ends up with only fed towns below critical mass, and nothing builds itself (tuning history 10).
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
-- **Jungle slowly gains ground** over long games: 43% at placement 600 for the greedy bot and still creeping. Watch it once currents add Sink.
+- **Jungle is the biggest terrain in long games**, about 41% from placement 500 on, and Plex sits at its 8% cap.
 - **Lemur cards are hard to open.** Lemurs are small to tap (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.
