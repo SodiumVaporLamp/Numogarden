@@ -687,10 +687,10 @@ function rumors(state, ev) {
 
 const LEVEL_TXT = [
   '',
-  'The tiles have started counting. Each one shows its zone now, and zones that sum to nine attract visitors.',
+  'The tiles have started counting. Each one shows its zone now. Zones that sum to nine attract visitors and open currents that change the land.',
   'Towns have started adding up their own names. A name that sums to the zone it stands on grows faster.',
   'The houses have opened their eyes. They seem to like you.',
-  'Currents are flowing between the zones. The map is thinking.'
+  'Night has fallen. The currents glow, and the map is thinking.'
 ];
 function levelUp(state, ev) {
   let L = 0; for (let i = 0; i < CFG.LEVELS.length; i++) if (state.stars >= CFG.LEVELS[i]) L = i;
@@ -709,7 +709,7 @@ function syzygyPairs(state) {
       if (!nb || nb.kind === 'r' || t.z + nb.z !== 9) continue;
       const hi = Math.max(t.z, nb.z);
       const [A, B] = t.id < nb.id ? [t, nb] : [nb, t];
-      out.push({ a: A.id, b: B.id, ka: key(A.q, A.r), kb: key(B.q, B.r), hi, lo: 9 - hi, name: CURRENTS[2 * hi - 9] });
+      out.push({ a: A.id, b: B.id, ka: key(A.q, A.r), kb: key(B.q, B.r), hi, lo: 9 - hi, name: CURRENTS[2 * hi - 9], top: t.z === hi ? t.id : nb.id });
     }
   }
   return out;

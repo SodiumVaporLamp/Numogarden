@@ -224,6 +224,10 @@ const CFG = {
   SPRAWL_BASE: 0.35, SPRAWL_SLOPE: 0.02, SPRAWL_MAX: 0.85,
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
+  CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
+  CURRENT_LINGER: 3,    // steps a current keeps flowing after its syzygy breaks
+  SURGE_BONUS: 0.25,    // Surge: extra self-building chance, and towns wake at half maturity
+  PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25] },
@@ -316,10 +320,10 @@ function newGame(seed) {
   const state = {
     v: 1, seed: seed >>> 0, rng: { s: (seed >>> 0) || 1 }, turn: 0, stars: 0, meter: 0, streak: 0, level: 0,
     map: {}, nextId: 1, nextTag: 1, offers: [], hand: [], choices: 0,
-    pending: [], spawns: [], builders: 0, ferries: 0,
+    pending: [], spawns: [], builders: 0, ferries: 0, currents: [],
     groups: {}, lemurs: [], events: [],
     stats: { sprawl: 0, spawn: 0, reclaim: 0, decline: 0, firstSelfBuild: null, selfBuildAfter50: 0, reclaimAfter50: 0,
-             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0 }
+             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0 }
   };
   addTile(state, 0, 0, ['H', 'H', 'F', 'F', 'S', 'J'], 'n');
   for (let i = 0; i < 3; i++) state.offers.push(genTile(state.rng));
@@ -500,6 +504,7 @@ function step(state, ev) {
   commitPending(state, ev);
   const C = clusters(state);
   tagAndTier(state, C, ev);
+  updateCurrents(state);
   rules(state, C, ev);
   rumors(state, ev);
   levelUp(state, ev);
@@ -521,7 +526,8 @@ function commitPending(state, ev) {
     } else if (p.cause === 'reclaim') {
       state.stats.reclaim++;
       if (late) state.stats.reclaimAfter50++;
-    } else state.stats.decline++;
+    } else if (p.cause === 'plex') state.stats.wild = (state.stats.wild || 0) + 1;
+    else state.stats.decline++;
   }
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
@@ -686,9 +692,13 @@ function rules(state, C, ev) {
   const H = C.byType.H, F = C.byType.F, J = C.byType.J, S = C.byType.S;
   const st = state.rng, P = state.pending;
   const pend = new Set();
+  const fx = currentFx(state);
+  const tid = x => C.tiles[(x / 6) | 0].id;
+  const held = x => fx.hold.has(tid(x));
+  const tick = x => fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast
   const addP = (x, to, cause) => {
     const t = C.tiles[(x / 6) | 0], i = x % 6, k = t.id + ':' + i;
-    if (pend.has(k) || t.w[i] === to || t.w[i] === 'X') return false;
+    if (pend.has(k) || t.w[i] === to || t.w[i] === 'X' || fx.hold.has(t.id)) return false;
     pend.add(k); P.push({ id: t.id, i, from: t.w[i], to, cause }); return true;
   };
 
@@ -711,9 +721,12 @@ function rules(state, C, ev) {
     if (g.supply >= g.need) { g.fed = true; for (const x of g.w) setD(C, x, 0); continue; }
     g.fed = false;
     if (g.size < CFG.STARVE_MIN) continue;
-    const x = mostExposed(C, g.w, 'H', st);
-    const d = getD(C, x) + 1; setD(C, x, d);
-    if (d >= CFG.DECAY_T) addP(x, 'M', 'starve');
+    const free = fx.hold.size ? g.w.filter(x => !held(x)) : g.w; // Hold: no decay in its area
+    if (free.length) {
+      const x = mostExposed(C, free, 'H', st);
+      const d = getD(C, x) + tick(x); setD(C, x, d);
+      if (d >= CFG.DECAY_T) addP(x, 'M', 'starve');
+    }
     const G = state.groups[g.tag];
     if (G && G.name && G.tier >= 2 && (G.warned == null || state.turn - G.warned > 25)) {
       G.warned = state.turn;
@@ -730,12 +743,45 @@ function rules(state, C, ev) {
       else if (c === 'J') { const jg = J.cid[y]; if (jg >= 0 && J.list[jg].size >= CFG.FALLOW_J) nearJ.push(x); }
     }
     if (worked) { for (const x of g.w) setD(C, x, 0); continue; }
-    if (!nearJ.length) continue;
-    let x = nearJ[0];
-    for (const y of nearJ) if (getD(C, y) > getD(C, x)) x = y;
-    if (getD(C, x) === 0) x = nearJ[rint(st, nearJ.length)];
-    const d = getD(C, x) + 1; setD(C, x, d);
+    const cand = fx.hold.size ? nearJ.filter(x => !held(x)) : nearJ;
+    if (!cand.length) continue;
+    let x = cand[0];
+    for (const y of cand) if (getD(C, y) > getD(C, x)) x = y;
+    if (getD(C, x) === 0) x = cand[rint(st, cand.length)];
+    const d = getD(C, x) + tick(x); setD(C, x, d);
     if (d >= CFG.DECAY_T) addP(x, 'M', 'fallow');
+  }
+
+  // Sink: each current wears down one hamlet or field wedge in its area, the most worn first
+  for (const area of fx.sink) {
+    const ws = [];
+    for (const t of area) {
+      if (fx.hold.has(t.id)) continue;
+      const a = C.idx[key(t.q, t.r)];
+      for (let i = 0; i < 6; i++) if (t.w[i] === 'H' || t.w[i] === 'F') ws.push(a * 6 + i);
+    }
+    if (!ws.length) continue;
+    let top = -1, best = [];
+    for (const x of ws) { const d = getD(C, x); if (d > top) { top = d; best = [x]; } else if (d === top) best.push(x); }
+    const x = best[rint(st, best.length)];
+    const d = getD(C, x) + tick(x); setD(C, x, d);
+    if (d >= CFG.DECAY_T) addP(x, 'M', 'sink');
+  }
+
+  // Plex: every few steps a current turns one wedge in its area wild, while wild land stays scarce
+  if (fx.plex.length) {
+    let nx = 0, nw = 0;
+    for (const t of C.tiles) for (const c of t.w) { nw++; if (c === 'X') nx++; }
+    for (const area of fx.plex) {
+      if (nx >= CFG.PLEX_CAP * nw) break;
+      const ws = [];
+      for (const t of area) {
+        if (fx.hold.has(t.id)) continue;
+        const a = C.idx[key(t.q, t.r)];
+        for (let i = 0; i < 6; i++) if (t.w[i] !== 'X' && !pend.has(t.id + ':' + i)) ws.push(a * 6 + i);
+      }
+      if (ws.length && addP(ws[rint(st, ws.length)], 'X', 'plex')) nx++;
+    }
   }
 
   // meadow next to jungle gets reclaimed
@@ -757,8 +803,10 @@ function rules(state, C, ev) {
   // sprawl: fed towns past critical mass build into neighbouring wedges
   for (const g of H.list) {
     const G = state.groups[g.tag];
+    let surge = false, warp = false;
+    if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
     // a town that has ever reached critical mass stays awake while it is still a town
-    const mature = G && G.townSince != null && state.turn - G.townSince >= CFG.MATURE;
+    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE / 2 : CFG.MATURE);
     const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
     const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
     const awake = mature && (big || flush);
@@ -767,7 +815,8 @@ function rules(state, C, ev) {
     let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + CFG.SPRAWL_SLOPE * Math.max(0, g.size - CFG.CRIT));
     if (g.trade) p += CFG.TRADE_BONUS;
     if (G && G.homed) p += CFG.HOME_BONUS;
-    const tries = 1 + Math.floor(Math.max(0, g.size - CFG.CRIT) / 20);
+    if (surge) p += CFG.SURGE_BONUS;
+    const tries = (1 + Math.floor(Math.max(0, g.size - CFG.CRIT) / 20)) * (warp ? 2 : 1); // Warp: builds twice per step
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
       const cand = [], wts = [];
@@ -838,14 +887,77 @@ function rumors(state, ev) {
 
 const LEVEL_TXT = [
   '',
-  'The tiles have started counting. Each one shows its zone now, and zones that sum to nine attract visitors.',
+  'The tiles have started counting. Each one shows its zone now. Zones that sum to nine attract visitors and open currents that change the land.',
   'Towns have started adding up their own names. A name that sums to the zone it stands on grows faster.',
   'The houses have opened their eyes. They seem to like you.',
-  'Currents are flowing between the zones. The map is thinking.'
+  'Night has fallen. The currents glow, and the map is thinking.'
 ];
 function levelUp(state, ev) {
   let L = 0; for (let i = 0; i < CFG.LEVELS.length; i++) if (state.stars >= CFG.LEVELS[i]) L = i;
   while (state.level < L) { state.level++; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
+}
+
+/* syzygies on the board: adjacent real tiles whose zones sum to nine. Each pair carries the current
+   named by the difference of its zones, running from the higher zone to the lower. */
+function syzygyPairs(state) {
+  const out = [];
+  for (const k in state.map) {
+    const t = state.map[k];
+    if (t.kind === 'r') continue;
+    for (let i = 0; i < 3; i++) {
+      const kb = key(t.q + DIRS[i][0], t.r + DIRS[i][1]), nb = state.map[kb];
+      if (!nb || nb.kind === 'r' || t.z + nb.z !== 9) continue;
+      const hi = Math.max(t.z, nb.z);
+      const [A, B] = t.id < nb.id ? [t, nb] : [nb, t];
+      out.push({ a: A.id, b: B.id, ka: key(A.q, A.r), kb: key(B.q, B.r), hi, lo: 9 - hi, name: CURRENTS[2 * hi - 9], top: t.z === hi ? t.id : nb.id });
+    }
+  }
+  return out;
+}
+/* where a current acts: its two tiles and every real tile touching either */
+function currentArea(state, c) {
+  const out = [], seen = new Set();
+  for (const k0 of [c.ka, c.kb]) {
+    const t = state.map[k0]; if (!t) continue;
+    for (let i = -1; i < 6; i++) {
+      const kk = i < 0 ? k0 : key(t.q + DIRS[i][0], t.r + DIRS[i][1]), nb = state.map[kk];
+      if (!nb || nb.kind === 'r' || seen.has(kk)) continue;
+      seen.add(kk); out.push(nb);
+    }
+  }
+  return out;
+}
+/* currents flow from weirdness 1 and linger a few steps after their syzygy breaks, so land
+   that shifts zones back and forth doesn't make them flicker. A removed tile ends its current. */
+function updateCurrents(state) {
+  if (state.level < 1) { state.currents = []; return; }
+  const live = new Map(syzygyPairs(state).map(c => [c.a + ':' + c.b, c]));
+  const out = [];
+  for (const c of state.currents || []) {
+    const k = c.a + ':' + c.b, p = live.get(k);
+    if (p) { Object.assign(c, p); c.gone = 0; live.delete(k); out.push(c); continue; }
+    const A = state.map[c.ka], B = state.map[c.kb];
+    if (!A || !B || A.id !== c.a || B.id !== c.b) continue;
+    if (++c.gone <= CFG.CURRENT_LINGER) out.push(c);
+  }
+  for (const p of live.values()) out.push(Object.assign(p, { since: state.turn, gone: 0 }));
+  state.currents = out;
+}
+function activeCurrents(state) { return state.currents || []; }
+/* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
+   Surge speeds towns up; Sink and Plex act once per current */
+function currentFx(state) {
+  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sink: [], plex: [] };
+  if (!CFG.CURRENT_FX) return fx;
+  for (const c of activeCurrents(state)) {
+    const area = currentArea(state, c);
+    // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end
+    if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b) fx.hold.add(t.id); }
+    else if (c.name === 'Warp' || c.name === 'Surge') for (const t of area) fx[c.name.toLowerCase()].add(t.id);
+    else if (c.name === 'Sink') fx.sink.push(area);
+    else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) fx.plex.push(area);
+  }
+  return fx;
 }
 
 /* clusters for the renderer: per wedge cluster size, tier and group tag, plus town labels */
@@ -885,7 +997,8 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, XW, CFG, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf };
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
+  syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);
@@ -905,6 +1018,13 @@ const REGION_NAME = { tc: 'Time-Circuit', warp: 'Warp', plex: 'Plex' };
 const TERRAIN = { H: 'Hamlet', F: 'Field', J: 'Jungle', S: 'Sea', M: 'Meadow', X: 'Plex' };
 const TIER_H = ['hamlet', 'village', 'town', 'city', 'metropolis'];
 const CLASS_NAME = { chrono: 'Chronodemon', amphi: 'Amphidemon', xeno: 'Xenodemon' };
+const CURRENT_TXT = {
+  Plex: `Every ${S.CFG.PLEX_EVERY} placements one wedge near it turns wild, while wild land is scarce.`,
+  Surge: 'Towns that touch it build faster and wake up sooner.',
+  Hold: 'The tiles around the pair stay as they are. Nothing decays or changes there.',
+  Warp: 'Time runs twice as fast near it, for decay and for building.',
+  Sink: 'It wears down one hamlet or field wedge near it every placement.'
+};
 const ROOFS = ['#E0705A', '#5E8FB0', '#D9A13B', '#C9607A'];
 const STORE = 'numogarden-v1';
 
@@ -912,10 +1032,10 @@ const $ = id => document.getElementById(id);
 const cv = $('board'), ctx = cv.getContext('2d');
 const slotsEl = $('slots'), hintEl = $('hint'), toastsEl = $('toasts'), scrim = $('scrim'), sheet = $('sheet');
 
-let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [];
+let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {};
 let cam = { x: 0, y: 0, s: 46 };
 let W = 0, H = 0, dpr = 1;
-const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0 };
+const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0, sheetAt: 0 };
 
 /* ---------- geometry ---------- */
 function hexCenter(q, r) { return [1.5 * q, SQ3 * (r + q / 2)]; }
@@ -958,13 +1078,13 @@ function refresh() {
   idMap = {};
   for (const k in state.map) idMap[state.map[k].id] = state.map[k];
   view = S.view(state);
-  currents = [];
-  for (const k in state.map) {
-    const a = state.map[k]; if (a.kind === 'r') continue;
-    for (let i = 0; i < 3; i++) {
-      const b = state.map[S.key(a.q + S.DIRS[i][0], a.r + S.DIRS[i][1])];
-      if (b && b.kind !== 'r' && a.z + b.z === 9) currents.push([a, b]);
-    }
+  // currents as the rules see them, with the tiles at each end and a light tint over each area
+  currents = []; tint = {};
+  for (const c of S.activeCurrents(state)) {
+    const a = idMap[c.a], b = idMap[c.b]; if (!a || !b) continue;
+    const col = REGION_COL[S.region(c.hi - c.lo)], area = S.currentArea(state, c);
+    currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) });
+    for (const t of area) (tint[t.id] || (tint[t.id] = new Set())).add(col);
   }
   if (ui.ghost && state.map[S.key(ui.ghost.q, ui.ghost.r)]) ui.ghost = null;
   if (ui.mode === 'ferry' && state.ferries <= 0) ui.mode = 'place';
@@ -1112,21 +1232,26 @@ function ghostEval() {
   const st = selectedTile(), w = S.rot(st.w, ui.ghost.k);
   const e = S.evalPlacement(state, w, ui.ghost.q, ui.ghost.r);
   const z = zoneOfW(w);
-  let syz = false;
-  for (const d of S.DIRS) { const nb = state.map[S.key(ui.ghost.q + d[0], ui.ghost.r + d[1])]; if (nb && nb.kind !== 'r' && nb.z + z === 9) syz = true; }
-  return { st, w, e, z, syz };
+  const opens = []; // currents this placement would open; a rumor opens none until it is real
+  if (st.kind !== 'r') for (const d of S.DIRS) {
+    const nb = state.map[S.key(ui.ghost.q + d[0], ui.ghost.r + d[1])];
+    if (!nb || nb.kind === 'r' || nb.z + z !== 9) continue;
+    const hi = Math.max(z, nb.z), name = S.CURRENTS[2 * hi - 9];
+    if (!opens.some(o => o.name === name)) opens.push({ name, hi, lo: 9 - hi });
+  }
+  return { st, w, e, z, opens };
 }
 function updateHint() {
   let txt;
   if (ui.mode === 'builder') txt = ui.clearKey ? 'Tap Clear tile to remove it. You can build on the empty spot.' : 'Builder: tap any tile to clear it.';
   else if (ui.ghost) {
-    const { st, e, syz } = ghostEval();
+    const { st, e, opens } = ghostEval();
     if (st.kind === 'r') txt = `A rumor. It becomes real once ${S.CFG.RUMOR_NEED} neighbours agree with its edges.`;
     else {
       const clean = e.n >= 2 && e.m === e.n;
       txt = clean ? (e.n >= 4 ? 'Perfect fit' : e.n >= 3 ? 'Snug fit' : 'Clean fit') : `${e.m} of ${e.n} edges match`;
       txt += ` · +${e.m}★`;
-      if (syz && state.level >= 1) txt += ' · zones sum to nine';
+      if (opens.length && state.level >= 1) txt += ' · opens ' + opens.map(o => `a ${o.name} current (${o.hi}::${o.lo})`).join(' and ');
       if (st.kind !== 'x') txt += '. Tap the tile to turn it.';
     }
   } else if (ui.mode === 'ferry') txt = 'Ferry: put this tile on any spot within 3 hexes of land.';
@@ -1152,9 +1277,10 @@ function toast(e) {
 function floater(wx, wy, txt, col) { ui.floaters.push({ wx, wy, txt, col, born: performance.now() }); ui.dirty = true; }
 
 /* ---------- sheets ---------- */
-function openSheet(html) { sheet.innerHTML = html; scrim.hidden = false; const f = sheet.querySelector('button'); if (f) f.focus({ preventScroll: true }); }
+function openSheet(html) { sheet.innerHTML = html; scrim.hidden = false; ui.sheetAt = performance.now(); const f = sheet.querySelector('button'); if (f) f.focus({ preventScroll: true }); }
 function closeSheet() { scrim.hidden = true; sheet.innerHTML = ''; }
-scrim.addEventListener('click', e => { if (e.target === scrim) closeSheet(); });
+// a tap on the board opens a sheet on pointerup, and the same tap's click then lands on the new scrim
+scrim.addEventListener('click', e => { if (e.target === scrim && performance.now() - ui.sheetAt > 400) closeSheet(); });
 
 function openGift() {
   openSheet(`
@@ -1208,6 +1334,21 @@ function openInspector(tl) {
     lines += tl.kind === 'x'
       ? `<p class="readout">zone 0 · Plex. Paired with a zone 9 tile it makes Uttunul's syzygy.</p>`
       : `<p class="readout">AQ ${phrase} = ${S.aqOf(phrase)} → zone ${z} · <span style="color:${REGION_COL[reg]}">${REGION_NAME[reg]}</span></p><p class="note">The tile's zone is the AQ total of its six terrain letters, reduced to one digit. It changes when the land changes.</p>`;
+    // currents acting on this tile, one line per kind
+    const byName = new Map();
+    for (const x of currents) {
+      if (!x.area.has(tl.id)) continue;
+      const g = byName.get(x.c.name) || { x, n: 0, end: false, live: false };
+      g.n++;
+      if (x.c.a === tl.id || x.c.b === tl.id) g.end = true;
+      if (!x.c.gone) g.live = true;
+      byName.set(x.c.name, g);
+    }
+    for (const [name, g] of byName) {
+      const c = g.x.c;
+      lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>`
+        + `<p class="note">${CURRENT_TXT[name]}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}</p>`;
+    }
   }
   const decaying = tl.d.some((d, i) => d > 0 && (tl.w[i] === 'H' || tl.w[i] === 'F'));
   if (decaying) lines += `<p class="note">Vines are growing here. The hamlets or fields on this tile are going untended.</p>`;
@@ -1247,14 +1388,15 @@ function openInfo() {
       <li>Hamlets need fields or sea beside them. Big towns need more. Hungry towns fade into meadow, and jungle grows over meadow and untended fields.</li>
       <li>A town that has been a town for a while and reaches critical mass (${S.CFG.CRIT} hamlet wedges, or fewer if it is very well fed) builds itself into the land around it. A metropolis lays whole tiles.</li>
       <li>Glowing wedges will change on your next placement.</li>
+      ${state.level >= 1 ? '<li>Two neighbouring tiles whose zones sum to nine open a current, and it changes the land around them. Sink wears it down, Hold keeps it as it is, Surge wakes towns sooner, Warp runs time twice as fast and Plex turns it wild. Tap a tile to see its currents.</li>' : ''}
       <li>Lakes give ferries, which let you start an island up to 3 hexes away. Towns and cities give builders, which clear a tile.</li>
     </ul>
     <h3>Weirdness</h3>
     <ul>
-      <li>${L[1]}★: tiles show their zone, and zones that sum to nine across an edge attract visitors from the Pandemonium Matrix.</li>
+      <li>${L[1]}★: tiles show their zone. Zones that sum to nine across an edge attract visitors from the Pandemonium Matrix and open currents.</li>
       <li>${L[2]}★: towns add up their own names in AQ.</li>
       <li>${L[3]}★: the houses open their eyes.</li>
-      <li>${L[4]}★: night falls and currents run between syzygies.</li>
+      <li>${L[4]}★: night falls and the currents glow.</li>
     </ul>
     <p class="readout">Now: ${state.stars}★ · weirdness ${state.level} · placement ${state.turn} · builders ${state.builders} · ferries ${state.ferries}</p>
     <h3>Chronicle</h3>
@@ -1431,14 +1573,29 @@ function drawNight(t) {
   }
   ctx.globalCompositeOperation = 'source-over';
 }
+function drawCurrentTint() {
+  const pad = cam.s * 1.2;
+  for (const id in tint) {
+    const tl = idMap[id]; if (!tl) continue;
+    const c = hexCenter(tl.q, tl.r), [sx, sy] = toScreen(c[0], c[1]);
+    if (sx < -pad || sx > W + pad || sy < -pad || sy > H + pad) continue;
+    setT(c[0], c[1]); hexPath(1);
+    for (const col of tint[id]) { ctx.globalAlpha = 0.09; ctx.fillStyle = col; ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+}
+/* faint by day, bright at night; a current fades out while it lingers after its syzygy breaks */
 function drawCurrents(t) {
+  if (!currents.length) return;
+  const night = state.level >= 4, pad = cam.s * 1.5;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.lineWidth = Math.max(1.5, cam.s * 0.05); ctx.setLineDash([cam.s * 0.16, cam.s * 0.14]);
+  ctx.lineWidth = night ? Math.max(1.5, cam.s * 0.05) : Math.max(1, cam.s * 0.035); ctx.setLineDash([cam.s * 0.16, cam.s * 0.14]);
   ctx.lineDashOffset = RM ? 0 : -t * cam.s * 0.6;
-  for (const [a, b] of currents) {
+  for (const { c, a, b, col } of currents) {
     const ca = hexCenter(a.q, a.r), cb = hexCenter(b.q, b.r), pa = toScreen(ca[0], ca[1]), pb = toScreen(cb[0], cb[1]);
-    const [from, to] = a.z > b.z ? [pa, pb] : [pb, pa]; // currents run from the higher zone to the lower
-    ctx.strokeStyle = REGION_COL[S.region(Math.abs(a.z - b.z))]; ctx.globalAlpha = 0.85;
+    if (Math.max(pa[0], pb[0]) < -pad || Math.min(pa[0], pb[0]) > W + pad || Math.max(pa[1], pb[1]) < -pad || Math.min(pa[1], pb[1]) > H + pad) continue;
+    const [from, to] = c.top === b.id ? [pb, pa] : [pa, pb]; // currents run from the higher zone to the lower
+    ctx.strokeStyle = col; ctx.globalAlpha = (night ? 0.85 : 0.45) * (1 - c.gone / (S.CFG.CURRENT_LINGER + 1));
     ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]); ctx.stroke();
   }
   ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
@@ -1449,7 +1606,7 @@ function drawPending(t) {
     const tl = idMap[p.id]; if (!tl) continue;
     const c = hexCenter(tl.q, tl.r); setT(c[0], c[1]);
     wedgePath(p.i, 0.97); ctx.globalAlpha = pulse; ctx.fillStyle = COL[p.to]; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.lineWidth = 2.2 / cam.s; ctx.strokeStyle = p.to === 'H' ? '#E0705A' : p.to === 'M' ? '#7FA866' : '#2F7A4D';
+    ctx.lineWidth = 2.2 / cam.s; ctx.strokeStyle = p.to === 'H' ? '#E0705A' : p.to === 'M' ? '#7FA866' : p.to === 'X' ? '#C23B5A' : '#2F7A4D';
     ctx.setLineDash([4 / cam.s, 3 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
   for (const sp of state.spawns) {
@@ -1596,7 +1753,9 @@ function draw(now) {
   if (state.level >= 3 && state.level < 4) { ctx.fillStyle = 'rgba(110,79,208,.05)'; ctx.fillRect(0, 0, W, H); }
   drawValid();
   drawTiles(t);
-  if (state.level >= 4) { drawNight(t); drawCurrents(t); }
+  if (state.level >= 1) drawCurrentTint();
+  if (state.level >= 4) drawNight(t);
+  if (state.level >= 1) drawCurrents(t);
   drawPending(t);
   drawClearTarget();
   drawGhost(t);
@@ -1723,6 +1882,7 @@ function start(data) {
   resize();
   if (loaded && loaded.state && loaded.state.v === 1 && loaded.state.map && loaded.state.offers) {
     state = loaded.state; if (loaded.cam && loaded.cam.s) cam = loaded.cam;
+    if (!state.currents) S.updateCurrents(state); // a world saved before currents picks them up now
     refresh();
   } else newWorld();
   resize();

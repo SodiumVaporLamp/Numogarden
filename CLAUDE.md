@@ -94,14 +94,16 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 - Builders, earned at town (1), city (1) and metropolis (2), clear one tile. Ferries let you place up to 3 hexes from land.
 
 **Weirdness** (`LEVELS` = stars 0/45/130/280/520):
-1. Tiles show zones; syzygies and lemurs start.
+1. Tiles show zones; syzygies, lemurs and currents start. Currents are drawn faint, with a light tint over the land they act on.
 2. Towns show AQ readouts; fields turn to dashed tokens; violet roofs and antennas.
 3. Houses grow eyes that follow your finger; the ground dusks; eyes in deep jungle.
-4. Night, lit windows, and animated currents drawn between syzygy pairs, running from the higher zone to the lower, coloured by the region of their difference.
+4. Night, lit windows, and the currents glow bright. A current is drawn as animated dashes between its pair, running from the higher zone to the lower, coloured by the region of its difference, and it fades while it lingers.
 
 **Page.** One-screen canvas game. HUD (wordmark, stars, gift meter, weirdness pips), tray (offers plus gifts), tools (Undo, Turn, Place, Build, Ferry), sheets (gift choice, tile inspector, lemur card, info with chronicle and New world). Controls:
 - Tap a spot to preview at the best rotation, tap the preview to turn it, then Place.
 - Drag to pan and pinch to zoom; wheel zoom and keys R, Enter and Z on desktop.
+
+The placement hint names any current a placement would open ("opens a Hold current (7::2)"). The tile inspector lists the currents acting on a tile, with the carrier and whether it is a pair tile or fading. A sheet opened by a board tap ignores scrim clicks for 400 ms, because the tap's own click lands on the new scrim; in v1 that closed the inspector and lemur cards as soon as they opened. A world saved before currents picks them up on load.
 
 Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 deep in memory. One deliberate light look, no dark theme; it dusks with weirdness instead. Fonts: Major Mono Display (wordmark, zone numerals, demon names, as on the SVL pages), Baloo 2 (UI), IBM Plex Mono (readouts). Honours prefers-reduced-motion.
 
@@ -137,11 +139,12 @@ Other things the harness shows:
 - **The random bot** gets a town to wake in fewer than half the runs (20 to 24 of 50 with currents, 23 to 29 in v1), and late. Careful play matters, which is intended.
 
 **Phone check** (`tools/check.py`) on docs/index.html at 390×844 with touch:
-- 10 tap-driven placements land and raise the score.
+- 10 tap-driven placements land and raise the score. It taps the best spot that is on screen, since new worlds use a random seed.
+- A tap on a tile opens the inspector.
 - Undo works, and the world comes back from storage on reload.
 - No sideways overflow, the canvas is not blank, and there are zero console errors.
 
-It passed on v1 with Google Fonts stubbed; the sandbox couldn't reach them.
+Google Fonts are stubbed, so it runs offline.
 
 **Lore check:** `DEMONS` equals the Lab's `DEMON_TABLE`, and `lore.json` order matches the mesh numbers. Both were verified by script when v1 was built.
 
@@ -160,7 +163,6 @@ It passed on v1 with Google Fonts stubbed; the sandbox couldn't reach them.
 
 ## Next (agreed with the author)
 
-- **Currents on the page.** Draw currents from weirdness 1, faint, and bright at night. Tint the area very lightly in the current's region colour. When the preview would open a current, the hint names it (e.g. "opens a Hold current (7::2)"). The inspector lists currents touching a tile.
 - **Cities that reinforce themselves**, the Landian thread. From city tier (24 wedges):
   - Hungry city wedges fall after 6 steps instead of 3.
   - A big jungle takes a decaying city wedge with p 0.1 instead of 0.3. Fields stay at 0.3.
@@ -190,7 +192,7 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 - **A world can stall.** About one greedy run in 50 ends up with only fed towns below critical mass, and nothing builds itself (tuning history 10).
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
 - **Jungle is the biggest terrain in long games**, about 41% from placement 500 on, and Plex sits at its 8% cap.
-- **Lemur cards are hard to open.** Lemurs are small to tap (0.3-hex hit radius).
+- **Lemurs are small to tap** (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.
 - **Untested at scale.** Performance was fine in the check, but very large worlds (500+ tiles) haven't been profiled on a phone. The renderer culls off-screen tiles and skips decorations when zoomed far out.
