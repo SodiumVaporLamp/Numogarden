@@ -136,31 +136,31 @@ Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 d
 - No run has Plex (X) at 10% or more at the end.
 - Zero errors.
 
-It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%.
+It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%. With step 1 (`results/night-seeds-*.txt`, D arriving with no needs) it passes on all three sets: end shares H 10%, F 3–4%, J 40%, S 20%, D 18%, X 8%, about 55 data-centre clusters with the largest near 100–110 wedges, and towns kept in 49–50 of 50.
 
 The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 4.5 points at most. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs.
 
-**Baseline** (`results/`), identical config, with currents, the city rule, grokking and maturity 40:
+**Baseline** (`results/`), identical config, with currents, the city rule, grokking, maturity 40 and data centres arriving at night (step 1):
 
 | seeds | pass line | max terrain share | runs with no self-build / no reclaim after 50 | median first self-build | biggest current rise | X max at t300 | errors |
 |---|---|---|---|---|---|---|---|
-| 1000 (tuning set) | PASS | 44.8% | 0 / 0 | 74.5 | Hold +2.1 | 8.4% | 0 |
-| 500000 (held out) | PASS | 48.4% | 0 / 0 | 81.5 | Hold +4.2 | 8.5% | 0 |
-| 900000 (held out) | PASS | 47.6% | 0 / 0 | 69.5 | Hold +2.9 | 8.5% | 0 |
-| 1300000 (seen during the Hold fix) | PASS | 48.0% | 0 / 0 | 81 | Surge +1.9 | 8.3% | 0 |
-| 1700000 (confirmation set for currents) | PASS | 43.6% | 0 / 0 | 89.5 | Hold +1.9 | 8.6% | 0 |
-| 2100000 (seen while fixing the city rule) | PASS | 45.3% | 0 / 0 | 82 | Hold +4.3 | 8.5% | 0 |
-| 2500000 (confirmation set for the city rule) | PASS | 46.8% | 0 / 0 | 69.5 | Hold +3.0 | 8.7% | 0 |
-| 2900000 (confirmation set for the first grokking) | PASS | 47.1% | 0 / 0 | 66.5 | Warp +3.7 | 8.3% | 0 |
-| 3300000 (confirmation set for 18+ grokking) | PASS | 49.1% | 0 / 0 | 79 | Hold +2.4 | 8.4% | 0 |
-| 3700000 (untouched until the maturity-40 check) | PASS | 44.1% | 0 / 0 | 72.5 | Hold +2.0 | 8.6% | 0 |
+| 1000 (tuning set) | PASS | 48.7% | 0 / 0 | 74.5 | Hold +2.5 | 8.3% | 0 |
+| 500000 (held out) | PASS | 49.4% | 0 / 0 | 81.5 | Hold +3.8 | 8.3% | 0 |
+| 900000 (held out) | PASS | 46.5% | 0 / 0 | 69.5 | Warp +2.2 | 8.6% | 0 |
+| 1300000 (seen during the Hold fix) | PASS | 49.1% | 0 / 0 | 81 | Warp +1.9 | 8.6% | 0 |
+| 1700000 (confirmation set for currents) | PASS | 45.8% | 0 / 0 | 89.5 | Surge +1.4 | 8.6% | 0 |
+| 2100000 (seen while fixing the city rule) | PASS | 44.2% | 0 / 0 | 82 | Hold +3.7 | 8.3% | 0 |
+| 2500000 (confirmation set for the city rule) | PASS | 47.2% | 0 / 0 | 69.5 | Hold +3.5 | 8.4% | 0 |
+| 2900000 (confirmation set for the first grokking) | PASS | 50.2% | 0 / 0 | 66.5 | Warp +3.8 | 8.3% | 0 |
+| 3300000 (confirmation set for 18+ grokking) | PASS | 46.7% | 0 / 0 | 79 | Hold +2.1 | 8.6% | 0 |
+| 3700000 (confirmation set for maturity 40) | PASS | 49.1% | 0 / 0 | 72.5 | Warp +2.3 | 8.3% | 0 |
 
-All ten sets pass. The tightest median is 66.5 (2900000). Earlier numbers (v1, currents alone, the first grokking, maturity 30) are in git history.
+All ten sets pass. The tightest median is 66.5 (2900000); night comes later, so data centres don't move it. Earlier numbers (v1, currents alone, the first grokking, maturity 30, before data centres) are in git history.
 
 Other things the harness shows:
-- Greedy end shares at 300: about H 16%, F 17%, J 38%, S 20%, M 2%, X 7%. Grokking fires about 0.6 times per run. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
+- Greedy end shares at 300: about H 13%, F 8%, J 39%, S 20%, D 11%, M 2%, X 7%. Grokking fires about 0.6 times per run. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
 - **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy, run as two halves of 10): no runaway. Jungle goes from 38% at 300 to 40% at 500 and stays near there, ending at 41% at 1000. Hamlets end at 14%, fields at 16%, X sits at its 8% cap, and the highest single-terrain share in any run is 45%. Grokking fires about 4 to 5 times per 1000 placements. Under the v1 rules (`results/harness-drift-1000-v1.txt`, current effects off and no city rule) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
 - **The random bot** gets a town to wake in about half the runs (24 to 34 of 50; 23 to 29 in v1), and late, so careful play matters, which is intended. Its towns rarely grok, about 0.3 times per run, because careless play mostly makes small towns.
 
@@ -190,10 +190,11 @@ Google Fonts are stubbed, so it runs offline.
 12. **Grokking ended the stall.** The author picked grokking from the backlog for tuning history 10, with a 60-step plateau, a one-tier jump, and fed villages and towns. Every known set then passes, including 1300000 and 1700000. It fires more often than expected: about 8 times per 300 greedy placements and 48 per 1000, and 23 per 300 for the random bot. The random bot's towns then woke in 41 to 46 runs of 50 instead of about half, so careless worlds came alive too, and the author asked for it to be rarer. Towns only (12+) cut groks by two-thirds, but careless worlds still woke in 45 of 50. A 100-step plateau brought the stall back on 1300000. The random bot's towns grok mostly at 12–14 wedges, and the stalled greedy towns sat at 19–23. So only towns of 18+ grok: about 0.6 groks per greedy game, the stall stays fixed, and the random bot's towns wake in 24 to 34 runs of 50, as before grokking. The confirmation set 3300000 passes.
 13. **Currents shortened the cozy phase.** The confirmation set for grokking, 2900000, misses the floor with a median first self-build of 59.5. It is also 59.5 with currents alone and 77.5 under the v1 rules, so currents cause it, not grokking or the city rule. Surge halves the wait to wake and Warp doubles building tries. The author committed grokking with this on record; finding the cause is next.
 14. **Maturity 40 gave the cozy phase back.** Switching effects off one at a time on the tight sets (median first self-build on 900000 / 2500000 / 2900000, live 60.5 / 62 / 59.5): Surge waiting the full maturity gave 67 / 62 / 61, Warp building once per step 61 / 64.5 / 64.5, both with no Surge build bonus 69 / 66 / 68.5, and all current effects off 68 / 75 / 69.5. Both effects count, and something else (Hold, Sink or Plex) adds a little on 2500000. The candidate fixes were weaker Surge and Warp (67 / 66 / 67.5), maturity 35 (64.5 / 69 / 63), maturity 40 (69.5 / 69.5 / 66.5), or Surge at three quarters with Warp building once (66 / 66 / 64.5). The author chose maturity 40, which keeps every current at full strength. All ten sets pass, including the untouched 3700000 (72.5), and the tuning set's median only moves from 72.5 to 74.5.
+15. **Night stopped late bloomers.** With fields leaving the deck at nightfall, the 300-placement line failed on all five sets first checked: 3 or 4 runs in 50 had no self-build after placement 50. On set 1000 all four were worlds where night came first (placement 120–127) and the first town would have woken at 152–190; without new fields it never did. The author chose to make the machines wait for a woken town. "Some town has built itself" still failed 1300000 and 2100000 by one run each: worlds that woke early (placements 36 and 42), went quiet, and would have built again at night. So the trigger is a town building itself since nightfall. All ten sets pass, and the night check passes on 1000, 500000 and 900000.
 
 ## Next (agreed with the author)
 
-- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4) the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight. The rules:
+- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4), once a town has built itself since nightfall, the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight (`deckOf`, `nightDeck`; tuning history 15). The chronicle says "The fields are spent. Data centres start to arrive." **Built so far: step 1**, D arriving with no needs. The rules:
   - D clusters like the other terrains and matches only D and X. A whole D tile is AQ 78, zone 6, so beside a whole hamlet tile (zone 3) it opens Djynxx's Warp current.
   - Cooling, by sea only: a D cluster needs one sea contact per 6 D wedges, on the supply pattern. Short of that, its most exposed D wedge decays and falls to meadow after `DECAY_T` steps, and jungle follows.
   - Absorbing: a starving hamlet wedge beside D becomes D instead of meadow, and the data centre takes the town's name, so towns turn into machines instead of vanishing.

@@ -60,7 +60,8 @@ for (const bot of ['greedy', 'zone', 'random']) {
   }
   const hp = o => Object.keys(o).sort().map(k => k + ':' + (100 * o[k] / HIST.total).toFixed(1) + '%').join(' ');
   console.log(`\n[${bot}] matches per placement  ${hp(HIST.m)}\n[${bot}] neighbours per placement ${hp(HIST.n)}\n[${bot}] clean fits (n>=3, all match) ${(100 * HIST.clean / HIST.total).toFixed(1)}%`);
-  const dom = R.filter(r => Math.max(r.sh.H, r.sh.F, r.sh.J, r.sh.S, r.sh.M) > 0.60).length;
+  const top = r => Math.max(r.sh.H, r.sh.F, r.sh.J, r.sh.S, r.sh.D || 0, r.sh.M);
+  const dom = R.filter(r => top(r) > 0.60).length;
   const noSelf = R.filter(r => r.st.selfBuildAfter50 < 1).length;
   const noRecl = R.filter(r => r.st.reclaimAfter50 < 1).length;
   const firsts = R.map(r => r.st.firstSelfBuild == null ? Infinity : r.st.firstSelfBuild);
@@ -69,8 +70,8 @@ for (const bot of ['greedy', 'zone', 'random']) {
   const avg = k => R.reduce((a, r) => a + r.sh[k], 0) / R.length;
   const avgS = k => R.reduce((a, r) => a + r.st[k], 0) / R.length;
   console.log(`\n=== ${bot} bot: ${RUNS} runs x ${TURNS} placements ===`);
-  console.log(`end shares (mean): H ${pct(avg('H'))}  F ${pct(avg('F'))}  J ${pct(avg('J'))}  S ${pct(avg('S'))}  M ${pct(avg('M'))}  X ${pct(avg('X'))}`);
-  console.log(`max single-terrain share across runs: ${pct(Math.max(...R.map(r => Math.max(r.sh.H, r.sh.F, r.sh.J, r.sh.S, r.sh.M))))}`);
+  console.log(`end shares (mean): H ${pct(avg('H'))}  F ${pct(avg('F'))}  J ${pct(avg('J'))}  S ${pct(avg('S'))}  D ${pct(avg('D'))}  M ${pct(avg('M'))}  X ${pct(avg('X'))}`);
+  console.log(`max single-terrain share across runs: ${pct(Math.max(...R.map(top)))}`);
   console.log(`runs with a terrain > 60%: ${dom}/${RUNS}`);
   console.log(`runs with no self-build after t50: ${noSelf}   no reclamation after t50: ${noRecl}`);
   console.log(`first self-build: median ${med}  (min ${Math.min(...firsts)}, max ${Math.max(...firsts)}), never: ${firsts.filter(x => x === Infinity).length}`);
@@ -80,7 +81,7 @@ for (const bot of ['greedy', 'zone', 'random']) {
     const ss = R.filter(r => r.snaps[T]);
     if (!ss.length) continue;
     const m = k => ss.reduce((a, r) => a + r.snaps[T][k], 0) / ss.length;
-    console.log(`  t${T}: H ${pct(m('H'))} F ${pct(m('F'))} J ${pct(m('J'))} S ${pct(m('S'))} M ${pct(m('M'))} X ${pct(m('X'))}`);
+    console.log(`  t${T}: H ${pct(m('H'))} F ${pct(m('F'))} J ${pct(m('J'))} S ${pct(m('S'))} D ${pct(m('D'))} M ${pct(m('M'))} X ${pct(m('X'))}`);
   }
   // currents: tile-steps per type pooled over runs, and Plex (X) share at placement 300
   const curShares = RR => {

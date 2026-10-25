@@ -7,10 +7,13 @@
 
 const DIRS = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]; // flat-top axial, edge i at 30+60i degrees
 const BASE = ['H', 'F', 'J', 'S']; // Hamlet (compute), Field (corpus), Jungle (the Outside), Sea (Lemurian)
+const LAND = ['H', 'F', 'J', 'S', 'D']; // terrains that form clusters; D (data centre) only arrives at night
 const XW = ['X', 'X', 'X', 'X', 'X', 'X'];
 
 const CFG = {
   WEIGHTS: { H: 0.26, F: 0.26, J: 0.28, S: 0.20 },
+  NIGHT_WEIGHTS: { H: 0.26, D: 0.26, J: 0.28, S: 0.20 }, // at night the corpus is spent: data centres take the fields' place
+  DC_AFTER_WAKE: true,  // ... but only once a town has built itself since nightfall
   CRIT: 24,             // hamlet wedges for a town to start building itself (critical mass)
   MATURE: 40,           // steps a place must have been a town before it can wake up
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
@@ -38,7 +41,7 @@ const CFG = {
   PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
-  TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25] },
+  TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
   LEVELS: [0, 45, 130, 280, 520]
 };
 
@@ -90,8 +93,20 @@ function matches(a, b) {
   return false;
 }
 
-function genTile(st) {
-  const W = CFG.WEIGHTS, types = BASE, wts = types.map(t => W[t]);
+/* the deck: day weights until night (weirdness 4), then the night weights */
+function deckOf(state) { return state.dcSince != null ? CFG.NIGHT_WEIGHTS : CFG.WEIGHTS; }
+/* the fields are spent once it is night and a town has built itself since nightfall
+   (a world that never woke, or went quiet, keeps its fields until a town builds again) */
+function nightDeck(state, ev) {
+  if (state.dcSince != null || state.level < 4) return;
+  if (state.nightAt == null) state.nightAt = state.turn;
+  if (CFG.DC_AFTER_WAKE && !(state.stats.lastSelfBuild >= state.nightAt)) return;
+  state.dcSince = state.turn;
+  pushEvent(state, ev, 'dc', 'The fields are spent. Data centres start to arrive.');
+}
+function genTile(st, W) {
+  W = W || CFG.WEIGHTS;
+  const types = Object.keys(W), wts = types.map(t => W[t]);
   const r = rnd(st);
   const k = r < 0.18 ? 1 : (r < 0.68 ? 2 : 3);
   let lens;
@@ -224,7 +239,7 @@ function choose(state, which) {
   if (state.choices <= 0) return false;
   state.choices--;
   const ev = [];
-  grant(state, which === 'r' ? { kind: 'r', w: genTile(state.rng) } : { kind: 'x' }, ev);
+  grant(state, which === 'r' ? { kind: 'r', w: genTile(state.rng, deckOf(state)) } : { kind: 'x' }, ev);
   return ev;
 }
 
@@ -246,7 +261,7 @@ function place(state, slotRef, q, r, k, opts) {
   const ev = evalPlacement(state, w, q, r);
   const out = { ok: true, m: ev.m, n: ev.n, gain: 0, events: [] };
   const t = addTile(state, q, r, w, kind);
-  if (slotRef.from === 'offer') state.offers[slotRef.i] = genTile(state.rng);
+  if (slotRef.from === 'offer') state.offers[slotRef.i] = genTile(state.rng, deckOf(state));
   else state.hand.splice(slotRef.i, 1);
   if (opts.ferry) state.ferries--;
   if (kind !== 'r') scorePlacement(state, t, ev, out);
@@ -316,6 +331,7 @@ function step(state, ev) {
   rules(state, C, ev);
   rumors(state, ev);
   levelUp(state, ev);
+  nightDeck(state, ev);
 }
 
 function commitPending(state, ev) {
@@ -330,6 +346,7 @@ function commitPending(state, ev) {
     if (p.cause === 'sprawl') {
       state.stats.sprawl++;
       if (state.stats.firstSelfBuild == null) state.stats.firstSelfBuild = state.turn;
+      state.stats.lastSelfBuild = state.turn;
       if (late) state.stats.selfBuildAfter50++;
     } else if (p.cause === 'reclaim') {
       state.stats.reclaim++;
@@ -342,6 +359,7 @@ function commitPending(state, ev) {
     addTile(state, s.q, s.r, s.w, 'n', { auto: true });
     state.stats.spawn++;
     if (state.stats.firstSelfBuild == null) state.stats.firstSelfBuild = state.turn;
+    state.stats.lastSelfBuild = state.turn;
     if (late) state.stats.selfBuildAfter50++;
     const G = state.groups[s.tag];
     pushEvent(state, ev, 'spawn', `${G && G.name ? G.name : 'A metropolis'} laid a tile all by itself.`, { k: s.k });
@@ -360,7 +378,7 @@ function clusters(state) {
   }
   const C = { tiles, idx, nb, byType: {} };
   const par = new Int32Array(n * 6);
-  for (const T of BASE) {
+  for (const T of LAND) {
     par.fill(-1);
     for (let a = 0; a < n; a++) for (let i = 0; i < 6; i++) { const c = tiles[a].w[i]; if (c === T || c === 'X') par[a * 6 + i] = a * 6 + i; }
     const find = x => { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; };
@@ -403,7 +421,7 @@ function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; 
 
 function tagAndTier(state, C, ev) {
   const turn = state.turn;
-  for (const T of BASE) {
+  for (const T of LAND) {
     for (const g of C.byType[T].list) {
       let best = 0, bestTier = -99, bestNamed = false;
       const seen = [];
@@ -794,7 +812,7 @@ function currentFx(state) {
 function view(state) {
   const C = clusters(state);
   const info = {};
-  for (const T of BASE) {
+  for (const T of LAND) {
     for (const g of C.byType[T].list) {
       const tier = tierOf(T, g.size);
       let tag = 0;
@@ -819,14 +837,14 @@ function view(state) {
 }
 
 function shares(state) {
-  const c = { H: 0, F: 0, J: 0, S: 0, M: 0, X: 0 }; let n = 0;
+  const c = { H: 0, F: 0, J: 0, S: 0, D: 0, M: 0, X: 0 }; let n = 0;
   for (const k in state.map) { const t = state.map[k]; if (t.kind === 'r') continue; for (const w of t.w) { c[w]++; n++; } }
   const out = {}; for (const k in c) out[k] = n ? c[k] / n : 0;
   out.n = n;
   return out;
 }
 
-const Sim = { DIRS, BASE, XW, CFG, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
+const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
   newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
   syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
