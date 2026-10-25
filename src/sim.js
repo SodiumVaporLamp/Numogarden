@@ -26,6 +26,7 @@ const CFG = {
   CITY_BITE: 0.1,       //   a big jungle takes a decaying city wedge with this chance (full speed in a Sink area,
                         //   from a deep jungle, or when the city has under half the supply it needs),
   CITY_SLOPE: 0.04, CITY_TRY_EVERY: 10, // and building climbs with size twice as fast
+  GROK_T: 60,           // a fed village or town that stays within one wedge of one size this long groks: it jumps a tier
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
@@ -127,7 +128,7 @@ function newGame(seed) {
     pending: [], spawns: [], builders: 0, ferries: 0, currents: [],
     groups: {}, lemurs: [], events: [],
     stats: { sprawl: 0, spawn: 0, reclaim: 0, decline: 0, firstSelfBuild: null, selfBuildAfter50: 0, reclaimAfter50: 0,
-             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0 }
+             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0, groks: 0 }
   };
   addTile(state, 0, 0, ['H', 'H', 'F', 'F', 'S', 'J'], 'n');
   for (let i = 0; i < 3; i++) state.offers.push(genTile(state.rng));
@@ -539,6 +540,21 @@ function rules(state, C, ev) {
       G.warned = state.turn;
       pushEvent(state, ev, 'hungry', `${G.name} is hungry. It needs fields or sea next to it.`);
     }
+  }
+
+  // grokking: a fed place that has stayed the same size for a long time jumps a tier.
+  // At city tier a town of 12+ wakes up under the usual rule, so a settled world starts moving again.
+  for (const g of H.list) {
+    const G = state.groups[g.tag];
+    if (!G || !G.name) continue;
+    if (G.flat == null || Math.abs(g.size - G.flat) > 1 || G.flatTier !== G.tier || !g.fed) {
+      G.flat = g.size; G.flatSince = state.turn; G.flatTier = G.tier; continue;
+    }
+    if (G.tier < 1 || G.tier >= 3 || state.turn - G.flatSince < CFG.GROK_T) continue;
+    G.tier++; state.builders++; state.stats.groks = (state.stats.groks || 0) + 1;
+    if (G.tier === 2) G.townSince = state.turn;
+    G.flat = g.size; G.flatSince = state.turn; G.flatTier = G.tier;
+    pushEvent(state, ev, 'grok', `${G.name} has been the same size for so long that something clicked. It groks: it counts as a ${G.tier === 2 ? 'town' : 'city'} now. (+1 builder)`);
   }
 
   // fields: worked if a hamlet touches them; untended fields next to jungle go fallow
