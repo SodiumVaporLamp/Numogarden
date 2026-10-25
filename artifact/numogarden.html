@@ -212,7 +212,7 @@ const XW = ['X', 'X', 'X', 'X', 'X', 'X'];
 const CFG = {
   WEIGHTS: { H: 0.26, F: 0.26, J: 0.28, S: 0.20 },
   CRIT: 24,             // hamlet wedges for a town to start building itself (critical mass)
-  MATURE: 30,           // steps a place must have been a town before it can wake up
+  MATURE: 40,           // steps a place must have been a town before it can wake up
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
   STARVE_MIN: 4,        // hamlets smaller than this get by on their own
   FALLOW_J: 6,          // fields go fallow only beside a jungle at least this big
@@ -232,7 +232,9 @@ const CFG = {
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
   CURRENT_LINGER: 3,    // steps a current keeps flowing after its syzygy breaks
-  SURGE_BONUS: 0.25,    // Surge: extra self-building chance, and towns wake at half maturity
+  SURGE_BONUS: 0.25,    // Surge: extra self-building chance,
+  SURGE_MATURE: 0.5,    //   and towns wake after this share of MATURE
+  WARP_TRIES: 2,        // Warp: building tries per step are multiplied by this
   PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
@@ -833,7 +835,7 @@ function rules(state, C, ev) {
     let surge = false, warp = false;
     if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
     // a town that has ever reached critical mass stays awake while it is still a town
-    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE / 2 : CFG.MATURE);
+    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE);
     const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
     const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
     const awake = mature && (big || flush);
@@ -844,7 +846,7 @@ function rules(state, C, ev) {
     if (g.trade) p += CFG.TRADE_BONUS;
     if (G && G.homed) p += CFG.HOME_BONUS;
     if (surge) p += CFG.SURGE_BONUS;
-    const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? 2 : 1); // Warp: builds twice per step
+    const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? CFG.WARP_TRIES : 1); // Warp: builds twice per step
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
       const cand = [], wts = [];

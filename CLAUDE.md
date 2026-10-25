@@ -48,6 +48,7 @@ SEEDBASE=2100000 node tools/harness.js        # added with the city rule (seen w
 SEEDBASE=2500000 node tools/harness.js        # added with the city rule (confirmation set)
 SEEDBASE=2900000 node tools/harness.js        # added with grokking (confirmation set for its first version)
 SEEDBASE=3300000 node tools/harness.js        # added with grokking (confirmation set for 18+ towns)
+SEEDBASE=3700000 node tools/harness.js        # added with maturity 40 (confirmation set)
 node tools/harness.js 20 1000                 # long-game drift check (diagnostic, no pass line)
 node tools/harness.js 50 300 '{"CRIT":22}'    # try a CFG override without editing the file
 node tools/trace.js 325679                    # look inside one run
@@ -71,9 +72,9 @@ python3 build.py && python3 tools/check.py    # build the page and run the phone
 | pair | current | carrier | effect |
 |---|---|---|---|
 | 9::0 | Plex | Uttunul | Every `PLEX_EVERY` (5) steps one wedge in the area turns wild, while X is under `PLEX_CAP` (8%) of all wedges. |
-| 8::1 | Surge | Murrumur | Hamlet clusters touching the area get +`SURGE_BONUS` (0.25) build chance and wake after half the maturity. |
+| 8::1 | Surge | Murrumur | Hamlet clusters touching the area get +`SURGE_BONUS` (0.25) build chance and wake after `SURGE_MATURE` (half) the maturity. |
 | 7::2 | Hold | Oddubb | The tiles around the pair, but not the pair itself, get no decay and no scheduled changes. It can keep a starving town alive. |
-| 6::3 | Warp | Djynxx | Time-lapse: decay and self-building in the area tick twice per step. |
+| 6::3 | Warp | Djynxx | Time-lapse: decay and self-building in the area tick twice per step (`WARP_TRIES` for building). |
 | 5::4 | Sink | Katak | The most worn H or F wedge in the area gains a point of decay. It clears land and opens it to the jungle. |
 
 Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there. `CFG.CURRENT_FX = false` keeps the tracking but turns the effects off, which replays v1 exactly; the harness uses it as its baseline. Warp is the common current and the others are rarer finds (tuning history 8).
@@ -91,7 +92,7 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 - Hunger: clusters of `STARVE_MIN` (4)+ without enough supply decay one wedge at a time, preferring the most exposed. After `DECAY_T` (3) hungry steps a wedge becomes meadow. Fed clusters reset their decay.
 - Fallow fields: a field cluster touching no hamlet goes fallow beside a jungle of `FALLOW_J` (6)+, using the same decay to meadow.
 - Reclamation: meadow next to jungle turns jungle with p 0.35 per step. A jungle of `JCRIT` (12)+ takes neglected (decaying) H/F wedges with p 0.3 (0.1 for a city).
-- Waking up: a hamlet group is a **town** at 12 wedges. It can **wake** after `MATURE` (30) steps as a town, if it is at critical mass (`CRIT` = 24, or 12+ for a town that already hit city tier once) or very well fed (supply ≥ `FLUSH` (2) × need). It also has to be fed, with slack for one more wedge.
+- Waking up: a hamlet group is a **town** at 12 wedges. It can **wake** after `MATURE` (40) steps as a town, if it is at critical mass (`CRIT` = 24, or 12+ for a town that already hit city tier once) or very well fed (supply ≥ `FLUSH` (2) × need). It also has to be fed, with slack for one more wedge.
 - Grokking: a fed town of `GROK_MIN` (18)+ wedges, three quarters of the way to critical mass, whose size stays within one wedge for `GROK_T` (60) steps jumps to city tier, with the city's usual builder. Once it has been a town for `MATURE` steps it wakes under the rule for towns that once hit city tier. It counts as a city for the jungle only from 24 wedges. A hungry step restarts the count. It is rare: under once per 300 placements of careful play, and about 4 times per 1000.
 - Self-building: an awake town builds into a neighbouring wedge with p = 0.35 + 0.02 per wedge above CRIT (max 0.85). Trade (two towns on one sea) adds +0.15, a homed name +0.10, and a large town gets one more try per `TRY_EVERY` (20) wedges above CRIT. Target preference: meadow 4, jungle 3, field 1, never sea or Plex. Eating its own fields can starve it, and that oscillation is intended.
 - Cities (`CITY`, 24+ wedges) reinforce themselves, the Landian thread. A big jungle takes a decaying city wedge with p `CITY_BITE` (0.1) instead of 0.3, while fields stay at 0.3. The jungle bites at full speed inside a Sink area, from a deep jungle (30+), and while the city has under half the supply it needs. Self-building climbs with size twice as fast: +`CITY_SLOPE` (0.04) per wedge above CRIT, and one more try per `CITY_TRY_EVERY` (10) wedges. Hunger works as for any town, and supply stays linear (tuning history 5 and 11).
@@ -127,25 +128,26 @@ The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZO
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 4.5 points at most. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs.
 
-**Baseline** (`results/`), identical config, with currents, the city rule and grokking:
+**Baseline** (`results/`), identical config, with currents, the city rule, grokking and maturity 40:
 
 | seeds | pass line | max terrain share | runs with no self-build / no reclaim after 50 | median first self-build | biggest current rise | X max at t300 | errors |
 |---|---|---|---|---|---|---|---|
-| 1000 (tuning set) | PASS | 44.8% | 0 / 0 | 72.5 | Hold +1.4 | 9.3% | 0 |
-| 500000 (held out) | PASS | 47.2% | 0 / 0 | 78 | Hold +2.9 | 8.3% | 0 |
-| 900000 (held out) | PASS | 47.7% | 0 / 0 | 60.5 | Hold +3.1 | 8.6% | 0 |
-| 1300000 (seen during the Hold fix) | PASS | 46.9% | 0 / 0 | 78 | Surge +1.5 | 8.3% | 0 |
-| 1700000 (confirmation set for currents) | PASS | 45.6% | 0 / 0 | 81.5 | Warp +1.6 | 8.5% | 0 |
-| 2100000 (seen while fixing the city rule) | PASS | 45.1% | 0 / 0 | 76.5 | Hold +3.5 | 8.5% | 0 |
-| 2500000 (confirmation set for the city rule) | PASS | 43.4% | 0 / 0 | 62 | Hold +2.2 | 8.7% | 0 |
-| 2900000 (confirmation set for the first grokking) | FAIL | 47.4% | 0 / 0 | 59.5 | Warp +4.3 | 8.3% | 0 |
-| 3300000 (untouched until the 18+ grokking check) | PASS | 50.9% | 0 / 0 | 73 | Hold +4.2 | 8.3% | 0 |
+| 1000 (tuning set) | PASS | 44.8% | 0 / 0 | 74.5 | Hold +2.1 | 8.4% | 0 |
+| 500000 (held out) | PASS | 48.4% | 0 / 0 | 81.5 | Hold +4.2 | 8.5% | 0 |
+| 900000 (held out) | PASS | 47.6% | 0 / 0 | 69.5 | Hold +2.9 | 8.5% | 0 |
+| 1300000 (seen during the Hold fix) | PASS | 48.0% | 0 / 0 | 81 | Surge +1.9 | 8.3% | 0 |
+| 1700000 (confirmation set for currents) | PASS | 43.6% | 0 / 0 | 89.5 | Hold +1.9 | 8.6% | 0 |
+| 2100000 (seen while fixing the city rule) | PASS | 45.3% | 0 / 0 | 82 | Hold +4.3 | 8.5% | 0 |
+| 2500000 (confirmation set for the city rule) | PASS | 46.8% | 0 / 0 | 69.5 | Hold +3.0 | 8.7% | 0 |
+| 2900000 (confirmation set for the first grokking) | PASS | 47.1% | 0 / 0 | 66.5 | Warp +3.7 | 8.3% | 0 |
+| 3300000 (confirmation set for 18+ grokking) | PASS | 49.1% | 0 / 0 | 79 | Hold +2.4 | 8.4% | 0 |
+| 3700000 (untouched until the maturity-40 check) | PASS | 44.1% | 0 / 0 | 72.5 | Hold +2.0 | 8.6% | 0 |
 
-2900000 misses the cozy-phase floor by half a placement, and it does the same without grokking (tuning history 13). Three medians sit at or near the floor: 900000, 2500000 and 2900000. Earlier numbers (v1, currents alone, the first grokking) are in git history.
+All ten sets pass. The tightest median is 66.5 (2900000). Earlier numbers (v1, currents alone, the first grokking, maturity 30) are in git history.
 
 Other things the harness shows:
 - Greedy end shares at 300: about H 16%, F 17%, J 38%, S 20%, M 2%, X 7%. Grokking fires about 0.6 times per run. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
-- **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy, run as two halves of 10): no runaway. Jungle goes from 36.5% at 300 to 39% at 500 and 41% at 1000. Hamlets end at 14%, fields at 16%, X sits at its 8% cap, and the highest single-terrain share in any run is 44%. Grokking fires about 4 times per 1000 placements. Without grokking, jungle settled at 40% (top share 43%). Under the v1 rules (`results/harness-drift-1000-v1.txt`, current effects off and no city rule) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
+- **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy, run as two halves of 10): no runaway. Jungle goes from 38% at 300 to 40% at 500 and stays near there, ending at 41% at 1000. Hamlets end at 14%, fields at 16%, X sits at its 8% cap, and the highest single-terrain share in any run is 45%. Grokking fires about 4 to 5 times per 1000 placements. Under the v1 rules (`results/harness-drift-1000-v1.txt`, current effects off and no city rule) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
 - **The random bot** gets a town to wake in about half the runs (24 to 34 of 50; 23 to 29 in v1), and late, so careful play matters, which is intended. Its towns rarely grok, about 0.3 times per run, because careless play mostly makes small towns.
 
 **Phone check** (`tools/check.py`) on docs/index.html at 390×844 with touch:
@@ -173,10 +175,11 @@ Google Fonts are stubbed, so it runs offline.
 11. **Slow hunger made cities sit idle.** The first city rule also made hungry city wedges take 6 steps to fall instead of 3. It failed on two sets: the median first self-build on 900000 fell to 59, under the floor, and on the fresh set 2100000 two runs had no self-build after placement 50 (currents alone pass that set). A trace of seed 2242542 showed a city overfed by placements to 58 wedges (supply 12, need 20). It starved slowly for 100 placements, building nothing because hungry towns don't build, and then sat at 42 wedges with no slack. With normal hunger both sets passed (900000 at 60.5, 2100000 at 76.5), so the author dropped the hunger part: cities resist the jungle and build faster, but go hungry like any town. The hunger part had come from Claude's proposal; the author's brief was about the jungle.
 12. **Grokking ended the stall.** The author picked grokking from the backlog for tuning history 10, with a 60-step plateau, a one-tier jump, and fed villages and towns. Every known set then passes, including 1300000 and 1700000. It fires more often than expected: about 8 times per 300 greedy placements and 48 per 1000, and 23 per 300 for the random bot. The random bot's towns then woke in 41 to 46 runs of 50 instead of about half, so careless worlds came alive too, and the author asked for it to be rarer. Towns only (12+) cut groks by two-thirds, but careless worlds still woke in 45 of 50. A 100-step plateau brought the stall back on 1300000. The random bot's towns grok mostly at 12–14 wedges, and the stalled greedy towns sat at 19–23. So only towns of 18+ grok: about 0.6 groks per greedy game, the stall stays fixed, and the random bot's towns wake in 24 to 34 runs of 50, as before grokking. The confirmation set 3300000 passes.
 13. **Currents shortened the cozy phase.** The confirmation set for grokking, 2900000, misses the floor with a median first self-build of 59.5. It is also 59.5 with currents alone and 77.5 under the v1 rules, so currents cause it, not grokking or the city rule. Surge halves the wait to wake and Warp doubles building tries. The author committed grokking with this on record; finding the cause is next.
+14. **Maturity 40 gave the cozy phase back.** Switching effects off one at a time on the tight sets (median first self-build on 900000 / 2500000 / 2900000, live 60.5 / 62 / 59.5): Surge waiting the full maturity gave 67 / 62 / 61, Warp building once per step 61 / 64.5 / 64.5, both with no Surge build bonus 69 / 66 / 68.5, and all current effects off 68 / 75 / 69.5. Both effects count, and something else (Hold, Sink or Plex) adds a little on 2500000. The candidate fixes were weaker Surge and Warp (67 / 66 / 67.5), maturity 35 (64.5 / 69 / 63), maturity 40 (69.5 / 69.5 / 66.5), or Surge at three quarters with Warp building once (66 / 66 / 64.5). The author chose maturity 40, which keeps every current at full strength. All ten sets pass, including the untouched 3700000 (72.5), and the tuning set's median only moves from 72.5 to 74.5.
 
 ## Next (agreed with the author)
 
-- **The cozy phase** (tuning history 13). Measure how much Surge's half maturity and Warp's double building each pull the first self-build earlier, then bring the author options with numbers.
+- Nothing is queued. The backlog below is open, and the author picks what comes next.
 
 For currents the author took the spec's defaults: the pair and its neighbours as the area, a 3-step linger, weirdness 1, and the strengths as proposed.
 
@@ -195,9 +198,8 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 
 ## Known limitations
 
-- **The cozy phase is close to its floor.** With currents the greedy median first self-build is 59.5 to 62 on three of eight sets, against a floor of 60 (tuning history 13).
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
-- **Jungle is the biggest terrain in long games**, about 39–40% from placement 500 on, and Plex sits at its 8% cap.
+- **Jungle is the biggest terrain in long games**, about 40–41% from placement 500 on, and Plex sits at its 8% cap.
 - **Lemurs are small to tap** (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.
