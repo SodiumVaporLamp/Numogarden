@@ -136,31 +136,31 @@ Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 d
 - No run has Plex (X) at 10% or more at the end.
 - Zero errors.
 
-It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%. With step 1 (`results/night-seeds-*.txt`, D arriving with no needs) it passes on all three sets: end shares H 10%, F 3–4%, J 40%, S 20%, D 18%, X 8%, about 55 data-centre clusters with the largest near 100–110 wedges, and towns kept in 49–50 of 50. With step 2 (cooling) it still passes on all three: data centres are cooled on 88% of their cluster-steps and settle at 10% of the land, about 40 clusters with the largest near 60 wedges. Hot inland data centres fall to meadow and jungle takes them, so jungle rises to 48% and the top share in any run to 54–57%, close to the 60% line.
+It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%. With step 1 (`results/night-seeds-*.txt`, D arriving with no needs) it passes on all three sets: end shares H 10%, F 3–4%, J 40%, S 20%, D 18%, X 8%, about 55 data-centre clusters with the largest near 100–110 wedges, and towns kept in 49–50 of 50. With step 2 (cooling) it still passes on all three: data centres are cooled on 88% of their cluster-steps and settle at 10% of the land, about 40 clusters with the largest near 60 wedges. Hot inland data centres fall to meadow and jungle takes them, so jungle rises to 48% and the top share in any run to 54–57%, close to the 60% line. With step 3 (absorbing) it passes on all three: about 90 hamlet wedges are absorbed per run, data centres grow to 11% with the largest near 85–95 wedges, jungle eases to 47%, and the top share is 53–55%.
 
 The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 4.5 points at most. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs.
 
-**Baseline** (`results/`), identical config, with currents, the city rule, grokking, maturity 40 and data centres arriving and cooling (steps 1 and 2):
+**Baseline** (`results/`), identical config, with currents, the city rule, grokking, maturity 40 and data centres arriving, cooling and absorbing (steps 1 to 3):
 
 | seeds | pass line | max terrain share | runs with no self-build / no reclaim after 50 | median first self-build | biggest current rise | X max at t300 | errors |
 |---|---|---|---|---|---|---|---|
-| 1000 (tuning set) | PASS | 51.9% | 0 / 0 | 74.5 | Hold +1.3 | 8.5% | 0 |
-| 500000 (held out) | PASS | 54.0% | 0 / 0 | 81.5 | Hold +3.2 | 8.4% | 0 |
-| 900000 (held out) | PASS | 52.6% | 0 / 0 | 69.5 | Warp +2.4 | 8.5% | 0 |
-| 1300000 (seen during the Hold fix) | PASS | 51.8% | 0 / 0 | 81 | Surge +1.7 | 8.4% | 0 |
-| 1700000 (confirmation set for currents) | PASS | 52.4% | 0 / 0 | 89.5 | Plex +1.4 | 8.4% | 0 |
-| 2100000 (seen while fixing the city rule) | PASS | 52.6% | 0 / 0 | 82 | Hold +4.2 | 8.6% | 0 |
-| 2500000 (confirmation set for the city rule) | PASS | 51.3% | 0 / 0 | 69.5 | Hold +3.5 | 8.4% | 0 |
-| 2900000 (confirmation set for the first grokking) | PASS | 51.0% | 0 / 0 | 66.5 | Warp +5.9 | 8.3% | 0 |
-| 3300000 (confirmation set for 18+ grokking) | PASS | 51.5% | 0 / 0 | 79 | Plex +1.7 | 8.4% | 0 |
-| 3700000 (confirmation set for maturity 40) | PASS | 50.9% | 0 / 0 | 72.5 | Surge +1.5 | 8.6% | 0 |
+| 1000 (tuning set) | PASS | 50.8% | 0 / 0 | 74.5 | Hold +1.6 | 8.3% | 0 |
+| 500000 (held out) | PASS | 52.8% | 0 / 0 | 81.5 | Hold +3.7 | 8.6% | 0 |
+| 900000 (held out) | PASS | 52.2% | 0 / 0 | 69.5 | Hold +2.2 | 8.3% | 0 |
+| 1300000 (seen during the Hold fix) | PASS | 48.9% | 0 / 0 | 81 | Surge +1.7 | 8.6% | 0 |
+| 1700000 (confirmation set for currents) | PASS | 52.8% | 0 / 0 | 89.5 | Surge +1.3 | 8.7% | 0 |
+| 2100000 (seen while fixing the city rule) | PASS | 51.4% | 0 / 0 | 82 | Hold +4.2 | 8.6% | 0 |
+| 2500000 (confirmation set for the city rule) | PASS | 53.0% | 0 / 0 | 69.5 | Hold +3.2 | 8.3% | 0 |
+| 2900000 (confirmation set for the first grokking) | PASS | 51.3% | 0 / 0 | 66.5 | Warp +5.0 | 8.5% | 0 |
+| 3300000 (confirmation set for 18+ grokking) | PASS | 52.7% | 0 / 0 | 79 | Hold +2.3 | 8.7% | 0 |
+| 3700000 (confirmation set for maturity 40) | PASS | 50.4% | 0 / 0 | 72.5 | Surge +1.6 | 8.9% | 0 |
 
-All ten sets pass. The tightest median is 66.5 (2900000); night comes later, so data centres don't move it. With cooling the top share is 51–54%, up from 44–50%, because jungle takes hot data centres. The 3700000 file has only the greedy section: a low-memory stop cut off its zone-aware and random diagnostics. Earlier numbers (v1, currents alone, the first grokking, maturity 30, before data centres) are in git history.
+All ten sets pass. The tightest median is 66.5 (2900000); night comes later, so data centres don't move it. With cooling the top share is 49–53%, up from 44–50% before data centres, because jungle takes hot data centres. Earlier numbers (v1, currents alone, the first grokking, maturity 30, before data centres) are in git history.
 
 Other things the harness shows:
-- Greedy end shares at 300: about H 12–13%, F 8%, J 43–45%, S 20%, D 7%, M 2%, X 7%. Grokking fires about 0.6 times per run. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
+- Greedy end shares at 300: about H 12–13%, F 8%, J 43%, S 20%, D 7–8%, M 2%, X 7%. Grokking fires about 0.6 times per run. Currents add churn: about 270 decline and 270 reclaim per run, against 170 and 240 in v1.
 - **Long games** (`results/harness-drift-1000.txt`, 20 seeds × 1000, greedy, run as two halves of 10): no runaway. Jungle goes from 38% at 300 to 40% at 500 and stays near there, ending at 41% at 1000. Hamlets end at 14%, fields at 16%, X sits at its 8% cap, and the highest single-terrain share in any run is 45%. Grokking fires about 4 to 5 times per 1000 placements. Under the v1 rules (`results/harness-drift-1000-v1.txt`, current effects off and no city rule) jungle keeps creeping, to 43% at 600 and 44% at 1000, with a top share of 48%.
 - **The random bot** gets a town to wake in about half the runs (24 to 34 of 50; 23 to 29 in v1), and late, so careful play matters, which is intended. Its towns rarely grok, about 0.3 times per run, because careless play mostly makes small towns.
 
@@ -194,7 +194,7 @@ Google Fonts are stubbed, so it runs offline.
 
 ## Next (agreed with the author)
 
-- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4), once a town has built itself since nightfall, the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight (`deckOf`, `nightDeck`; tuning history 15). The chronicle says "The fields are spent. Data centres start to arrive." **Built so far: steps 1 and 2**, D arriving and cooling. The rules:
+- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4), once a town has built itself since nightfall, the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight (`deckOf`, `nightDeck`; tuning history 15). The chronicle says "The fields are spent. Data centres start to arrive." **Built so far: steps 1 to 3**, D arriving, cooling and absorbing. The rules:
   - D clusters like the other terrains and matches only D and X. A whole D tile is AQ 78, zone 6, so beside a whole hamlet tile (zone 3) it opens Djynxx's Warp current.
   - Cooling, by sea only: a D cluster needs one sea contact per 6 D wedges, on the supply pattern. Short of that, its most exposed D wedge decays and falls to meadow after `DECAY_T` steps, and jungle follows.
   - Absorbing: a starving hamlet wedge beside D becomes D instead of meadow, and the data centre takes the town's name, so towns turn into machines instead of vanishing.

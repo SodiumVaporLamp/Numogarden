@@ -353,7 +353,11 @@ function commitPending(state, ev) {
       state.stats.reclaim++;
       if (late) state.stats.reclaimAfter50++;
     } else if (p.cause === 'plex') state.stats.wild = (state.stats.wild || 0) + 1;
-    else {
+    else if (p.cause === 'absorb') {
+      state.stats.absorbed = (state.stats.absorbed || 0) + 1;
+      const G = state.groups[p.tag];
+      if (G) { G.absorbed = true; if (G.name) (state.absorbedNames || (state.absorbedNames = [])).push({ id: p.id, i: p.i, name: G.name }); }
+    } else {
       state.stats.decline++;
       if (p.cause === 'overheat') state.stats.overheat = (state.stats.overheat || 0) + 1;
     }
@@ -456,10 +460,22 @@ function tagAndTier(state, C, ev) {
       if (tier > G.tier) { for (let k = Math.max(0, G.tier + 1); k <= tier; k++) onTier(state, G, k, g, C, ev); G.tier = tier; }
     }
   }
+  // a data centre that absorbed part of a named town takes the town's name, if it has none yet
+  if (state.absorbedNames && state.absorbedNames.length) {
+    const byId = {}; for (const t of C.tiles) byId[t.id] = t;
+    for (const a of state.absorbedNames) {
+      const t = byId[a.id]; if (!t || t.w[a.i] !== 'D') continue;
+      const G = state.groups[t.tg[a.i]];
+      if (!G || G.T !== 'D' || G.name) continue;
+      G.name = a.name; G.aq = aqOf(a.name); G.zone = dr(G.aq);
+      pushEvent(state, ev, 'absorb', `${a.name} is becoming a data centre.`);
+    }
+    state.absorbedNames = [];
+  }
   for (const tg in state.groups) {
     const G = state.groups[tg];
     if (G.seen !== turn) {
-      if (G.T === 'H' && G.name) pushEvent(state, ev, 'lost', `The Outside took ${G.name} back. Only meadow remains.`);
+      if (G.T === 'H' && G.name) pushEvent(state, ev, 'lost', G.absorbed ? `${G.name} is part of a data centre now.` : `The Outside took ${G.name} back. Only meadow remains.`);
       delete state.groups[tg];
     }
   }
@@ -527,10 +543,10 @@ function rules(state, C, ev) {
   const held = x => fx.hold.has(tid(x));
   const tick = x => fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast
   const sunk = x => fx.sunk.has(tid(x));          // Sink: cities lose their protection
-  const addP = (x, to, cause) => {
+  const addP = (x, to, cause, tag) => {
     const t = C.tiles[(x / 6) | 0], i = x % 6, k = t.id + ':' + i;
     if (pend.has(k) || t.w[i] === to || t.w[i] === 'X' || fx.hold.has(t.id)) return false;
-    pend.add(k); P.push({ id: t.id, i, from: t.w[i], to, cause }); return true;
+    pend.add(k); P.push(tag ? { id: t.id, i, from: t.w[i], to, cause, tag } : { id: t.id, i, from: t.w[i], to, cause }); return true;
   };
 
   // hamlets: supply from adjacent fields and sea; shared seas mean trade
@@ -558,7 +574,11 @@ function rules(state, C, ev) {
     if (free.length) {
       const x = mostExposed(C, free, 'H', st);
       const d = getD(C, x) + tick(x); setD(C, x, d);
-      if (d >= CFG.DECAY_T) addP(x, 'M', 'starve');
+      // a starving hamlet wedge beside a data centre becomes part of it instead of meadow
+      if (d >= CFG.DECAY_T) {
+        if (adjW(C, x).some(y => wt(C, y) === 'D')) addP(x, 'D', 'absorb', g.tag);
+        else addP(x, 'M', 'starve');
+      }
     }
     const G = state.groups[g.tag];
     if (G && G.name && G.tier >= 2 && (G.warned == null || state.turn - G.warned > 25)) {
@@ -848,11 +868,20 @@ function view(state) {
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
     labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), q: sx / g.size, r: sy / g.size });
   }
+  // data centres that took a town's name
+  const dlabels = [];
+  for (const g of C.byType.D.list) {
+    const G = state.groups[g.tag];
+    if (!G || !G.name) continue;
+    let sx = 0, sy = 0;
+    for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
+    dlabels.push({ name: G.name, aq: G.aq, zone: G.zone, size: g.size, q: sx / g.size, r: sy / g.size });
+  }
   const seas = C.byType.S.list.map(g => {
     let sx = 0, sy = 0; for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
     return { size: g.size, q: sx / g.size, r: sy / g.size };
   });
-  return { info, labels, seas };
+  return { info, labels, dlabels, seas };
 }
 
 function shares(state) {
