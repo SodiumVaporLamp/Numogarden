@@ -106,11 +106,13 @@ Nothing can be scheduled on a held tile, so Hold also blocks Sink and Plex there
 3. Houses grow eyes that follow your finger; the ground dusks; eyes in deep jungle.
 4. Night, lit windows, and the currents glow bright. A current is drawn as animated dashes between its pair, running from the higher zone to the lower, coloured by the region of its difference, and it fades while it lingers.
 
-**Page.** One-screen canvas game. HUD (wordmark, stars, gift meter, weirdness pips), tray (offers plus gifts), tools (Undo, Turn, Place, Build, Ferry), sheets (gift choice, tile inspector, lemur card, info with chronicle and New world). Controls:
+**Page.** One-screen canvas game. HUD (wordmark, stars, gift meter, weirdness pips), tray (offers plus gifts), tools (Undo, Turn, Place, Build, Ferry), sheets (gift choice, tile inspector, lemur card, info with settings, chronicle and New world). Controls:
 - Tap a spot to preview at the best rotation, tap the preview to turn it, then Place.
 - Drag to pan and pinch to zoom; wheel zoom and keys R, Enter and Z on desktop.
 
 The placement hint names any current a placement would open ("opens a Hold current (7::2)"). The tile inspector lists the currents acting on a tile, with the carrier and whether it is a pair tile or fading. A sheet opened by a board tap ignores scrim clicks for 400 ms, because the tap's own click lands on the new scrim; in v1 that closed the inspector and lemur cards as soon as they opened. A world saved before currents picks them up on load.
+
+Settings sit in the info sheet. **Show clean fits** is off by default: when on, clean-fit spots are drawn in teal and the hint adds "Teal spots fit cleanly." When off, every open spot looks alike except for a lighter fill where at least one edge matches. Settings are saved per device under `numogarden-prefs`, apart from the world, so New world keeps them.
 
 Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 deep in memory. One deliberate light look, no dark theme; it dusks with weirdness instead. Fonts: Major Mono Display (wordmark, zone numerals, demon names, as on the SVL pages), Baloo 2 (UI), IBM Plex Mono (readouts). Honours prefers-reduced-motion.
 

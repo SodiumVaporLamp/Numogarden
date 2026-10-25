@@ -151,7 +151,15 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .row .btn { flex: 1 1 140px; }
 .credit { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { .gift-chip, .toast, .sheet { animation: none; } .slot { transition: none; } }
+/* a setting is one tappable row: words on the left, a switch on the right */
+.setting { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left; border: 1.5px solid var(--rule); background: #FFFFFF; border-radius: 16px; padding: 10px 12px; cursor: pointer; }
+.setting b { display: block; font-size: 15px; font-weight: 600; }
+.setting .note { display: block; line-height: 1.3; }
+.switch { flex: none; position: relative; width: 50px; height: 30px; box-sizing: border-box; border-radius: 999px; border: 1px solid var(--rule); background: var(--well); transition: background .2s, border-color .2s; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(30, 43, 47, .25); transition: transform .2s; }
+.setting[aria-checked="true"] .switch { background: var(--fit); border-color: var(--fit); }
+.setting[aria-checked="true"] .switch::after { transform: translateX(20px); }
+@media (prefers-reduced-motion: reduce) { .gift-chip, .toast, .sheet { animation: none; } .slot, .switch, .switch::after { transition: none; } }
 </style>
 
 <div id="app">
@@ -1057,6 +1065,11 @@ const CURRENT_TXT = {
 };
 const ROOFS = ['#E0705A', '#5E8FB0', '#D9A13B', '#C9607A'];
 const STORE = 'numogarden-v1';
+/* settings belong to the device, not the world, so they live apart from the save and survive New world */
+const PREFS = 'numogarden-prefs';
+const prefs = { cleanFits: false };
+try { const p = JSON.parse(localStorage.getItem(PREFS) || 'null'); if (p && typeof p.cleanFits === 'boolean') prefs.cleanFits = p.cleanFits; } catch (e) { /* storage may be unavailable */ }
+function savePrefs() { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) { /* storage may be unavailable */ } }
 
 const $ = id => document.getElementById(id);
 const cv = $('board'), ctx = cv.getContext('2d');
@@ -1285,7 +1298,7 @@ function updateHint() {
       if (st.kind !== 'x') txt += '. Tap the tile to turn it.';
     }
   } else if (ui.mode === 'ferry') txt = 'Ferry: put this tile on any spot within 3 hexes of land.';
-  else txt = state.turn < 8 ? 'Tap a glowing spot to try the tile there. Teal spots fit cleanly.' : 'Pick a spot. Teal spots fit cleanly.';
+  else txt = (state.turn < 8 ? 'Tap a glowing spot to try the tile there.' : 'Pick a spot.') + (prefs.cleanFits ? ' Teal spots fit cleanly.' : '');
   hintEl.textContent = txt;
 }
 
@@ -1408,11 +1421,16 @@ function openInfo() {
     <h3>Playing</h3>
     <ul>
       <li>Pick a tile in the tray, tap a spot to try it, tap the tile again to turn it, then Place. Drag to move around and pinch to zoom.</li>
-      <li>Each edge that matches its neighbour earns a star. Teal spots are where the tile fits cleanly.</li>
+      <li>Each edge that matches its neighbour earns a star. With Show clean fits on, teal spots mark where the tile fits cleanly.</li>
       <li>Clean fits fill the gift meter, snug ones (3 or more neighbours) twice as fast. A full meter offers a Plex tile or a Rumor.</li>
       <li>A perfect fit, 4 or more neighbours all agreeing, gives a Plex tile straight away.</li>
       <li>Undo takes back your last move. You cannot lose.</li>
     </ul>
+    <h3>Settings</h3>
+    <button type="button" class="setting" id="cleanSw" role="switch" aria-checked="${prefs.cleanFits}" aria-labelledby="cleanLbl" aria-describedby="cleanNote">
+      <span><b id="cleanLbl">Show clean fits</b><span class="note" id="cleanNote">Teal spots show where the selected tile fits cleanly.</span></span>
+      <span class="switch" aria-hidden="true"></span>
+    </button>
     <h3>What the land does on its own</h3>
     <ul>
       <li>Hamlets need fields or sea beside them. Big towns need more. Hungry towns fade into meadow, and jungle grows over meadow and untended fields.</li>
@@ -1437,6 +1455,12 @@ function openInfo() {
     </div>
     <p class="credit">Built by SVL with Claude, October 2026. Demon names, zone pairs and descriptions come from <a href="https://claude.ai/artifact/1u4CmPQFRszxxz2beVf3Ae" target="_blank" rel="noopener">Numogram Lab</a>.</p>`);
   $('closeS').addEventListener('click', closeSheet);
+  const sw = $('cleanSw');
+  sw.addEventListener('click', () => {
+    prefs.cleanFits = !prefs.cleanFits; savePrefs();
+    sw.setAttribute('aria-checked', String(prefs.cleanFits));
+    updateHint(); ui.dirty = true;
+  });
   const nw = $('newW');
   nw.addEventListener('click', () => {
     if (nw.dataset.armed) { closeSheet(); newWorld(); return; }
@@ -1651,7 +1675,7 @@ function drawValid() {
   for (const v of ui.valid) {
     if (ui.ghost && ui.ghost.q === v.q && ui.ghost.r === v.r) continue;
     const c = hexCenter(v.q, v.r); setT(c[0], c[1]);
-    const clean = v.n >= 2 && v.m === v.n;
+    const clean = prefs.cleanFits && v.n >= 2 && v.m === v.n; // teal only when the player asked for it
     hexPath(0.93);
     ctx.fillStyle = clean ? 'rgba(31,156,132,.22)' : v.m > 0 ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.14)';
     ctx.fill();
@@ -1919,7 +1943,7 @@ function start(data) {
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ state: JSON.stringify(state), cam })); } catch (e) { /* not in a viewer */ }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderTray(); ui.dirty = true; });
   requestAnimationFrame(loop);
-  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, toScreen, hexCenter };
+  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter };
 }
 if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
 else start((window.claude && window.claude.hot && window.claude.hot.data) || {});
