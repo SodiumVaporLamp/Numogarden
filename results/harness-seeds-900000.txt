@@ -1,0 +1,39 @@
+
+[greedy] matches per placement  1:0.7% 2:64.5% 3:34.6% 4:0.2%
+[greedy] neighbours per placement 1:0.3% 2:18.7% 3:79.9% 4:1.1% 6:0.0%
+[greedy] clean fits (n>=3, all match) 34.4%
+
+=== greedy bot: 50 runs x 300 placements ===
+end shares (mean): H 17.3%  F 19.5%  J 38.6%  S 20.3%  M 1.3%  X 3.0%
+max single-terrain share across runs: 51.5%
+runs with a terrain > 60%: 0/50
+runs with no self-build after t50: 0   no reclamation after t50: 0
+first self-build: median 68.5  (min 23, max 226), never: 0
+mean per run: sprawl 65.9  spawn 3.6  reclaim 264.1  decline 190.1  perfect 0.6  snug 100.6  syzygies 63.8  lemurs 20.5  rumorsReal 6.6  faded 1.2
+mean stars 1334  level dist {"4":50}  towns 12.8  largest town (mean) 75.4  tiles 303
+  t100: H 22.9% F 20.4% J 32.3% S 20.8% M 1.1%
+  t200: H 19.9% F 20.1% J 35.6% S 20.4% M 1.3%
+  t300: H 17.3% F 19.5% J 38.6% S 20.3% M 1.3%
+event kinds (last 80 per run, summed): {"rumor":121,"lemur":356,"hungry":576,"sea":330,"current":1153,"harvest":265,"jungle":295,"village":333,"city":82,"sprawl":70,"merge":38,"town":188,"metro":61,"spawn":70,"homed":29,"reward":11,"faded":22}
+errors: 0
+PASS CRITERIA (greedy): PASS  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 68.5 in 60..180, errors 0]
+
+[random] matches per placement  0:54.5% 1:33.7% 2:9.1% 3:2.1% 4:0.4% 5:0.0% 6:0.0%
+[random] neighbours per placement 1:40.3% 2:24.0% 3:14.3% 4:10.0% 5:7.4% 6:4.0%
+[random] clean fits (n>=3, all match) 0.4%
+
+=== random bot: 50 runs x 300 placements ===
+end shares (mean): H 22.5%  F 21.8%  J 33.9%  S 20.8%  M 0.9%  X 0.1%
+max single-terrain share across runs: 41.6%
+runs with a terrain > 60%: 0/50
+runs with no self-build after t50: 21   no reclamation after t50: 0
+first self-build: median 245.5  (min 34, max Infinity), never: 21
+mean per run: sprawl 22.3  spawn 1.0  reclaim 132.2  decline 120.4  perfect 0.3  snug 1.3  syzygies 45.0  lemurs 7.6  rumorsReal 0.0  faded 0.0
+mean stars 369  level dist {"3":50}  towns 15.2  largest town (mean) 40.6  tiles 302
+  t100: H 22.3% F 22.6% J 33.1% S 21.1% M 0.9%
+  t200: H 22.6% F 22.1% J 33.6% S 20.8% M 0.9%
+  t300: H 22.5% F 21.8% J 33.9% S 20.8% M 0.9%
+event kinds (last 80 per run, summed): {"harvest":270,"hungry":108,"village":718,"jungle":529,"lemur":178,"current":1611,"sea":218,"level":75,"homed":67,"town":113,"sprawl":26,"merge":20,"city":6,"metro":9,"spawn":38,"reward":14}
+errors: 0
+
+(24.1s)

@@ -1,0 +1,45 @@
+
+[greedy] matches per placement  1:0.4% 2:62.0% 3:37.5% 4:0.1%
+[greedy] neighbours per placement 1:0.2% 2:13.1% 3:85.7% 4:1.0%
+[greedy] clean fits (n>=3, all match) 37.2%
+
+=== greedy bot: 20 runs x 600 placements ===
+end shares (mean): H 14.1%  F 18.7%  J 42.8%  S 20.8%  M 0.8%  X 2.9%
+max single-terrain share across runs: 46.4%
+runs with a terrain > 60%: 0/20
+runs with no self-build after t50: 0   no reclamation after t50: 0
+first self-build: median 60.5  (min 36, max 188), never: 0
+mean per run: sprawl 166.7  spawn 8.6  reclaim 707.6  decline 483.8  perfect 0.7  snug 216.3  syzygies 131.9  lemurs 39.8  rumorsReal 14.0  faded 2.5
+mean stars 2666  level dist {"4":20}  towns 21.8  largest town (mean) 85.8  tiles 607
+  t100: H 23.8% F 21.8% J 30.2% S 21.4% M 0.9%
+  t200: H 20.0% F 20.8% J 34.5% S 21.0% M 1.2%
+  t300: H 18.3% F 20.6% J 36.8% S 20.6% M 1.1%
+  t400: H 17.1% F 19.7% J 38.6% S 20.4% M 1.4%
+  t500: H 14.8% F 19.1% J 41.4% S 20.7% M 1.3%
+  t600: H 14.1% F 18.7% J 42.8% S 20.8% M 0.8%
+event kinds (last 80 per run, summed): {"lemur":144,"jungle":87,"town":74,"hungry":259,"harvest":97,"current":421,"sea":148,"city":40,"sprawl":35,"village":123,"merge":24,"faded":9,"rumor":53,"homed":16,"reward":4,"metro":26,"spawn":40}
+errors: 0
+PASS CRITERIA (greedy): PASS  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 60.5 in 60..180, errors 0]
+
+[random] matches per placement  0:52.5% 1:34.4% 2:9.9% 3:2.5% 4:0.5% 5:0.1% 6:0.0%
+[random] neighbours per placement 1:36.8% 2:23.4% 3:15.4% 4:10.2% 5:8.6% 6:5.7%
+[random] clean fits (n>=3, all match) 0.4%
+
+=== random bot: 20 runs x 600 placements ===
+end shares (mean): H 23.0%  F 20.3%  J 34.5%  S 21.2%  M 0.8%  X 0.2%
+max single-terrain share across runs: 39.5%
+runs with a terrain > 60%: 0/20
+runs with no self-build after t50: 2   no reclamation after t50: 0
+first self-build: median 246.5  (min 41, max Infinity), never: 2
+mean per run: sprawl 76.0  spawn 2.0  reclaim 316.0  decline 268.1  perfect 0.8  snug 2.6  syzygies 106.2  lemurs 14.4  rumorsReal 0.0  faded 0.2
+mean stars 809  level dist {"4":20}  towns 31.0  largest town (mean) 81.4  tiles 603
+  t100: H 23.6% F 21.8% J 33.0% S 20.6% M 1.0%
+  t200: H 22.4% F 21.5% J 33.8% S 21.5% M 0.7%
+  t300: H 23.4% F 20.8% J 33.5% S 21.4% M 0.7%
+  t400: H 23.1% F 20.7% J 33.9% S 21.2% M 0.9%
+  t500: H 23.2% F 20.3% J 34.4% S 21.1% M 0.8%
+  t600: H 23.0% F 20.3% J 34.5% S 21.2% M 0.8%
+event kinds (last 80 per run, summed): {"current":625,"spawn":14,"town":45,"merge":21,"jungle":212,"hungry":70,"village":265,"harvest":108,"sea":89,"homed":26,"lemur":88,"city":9,"sprawl":12,"level":3,"metro":6,"reward":5,"faded":2}
+errors: 0
+
+(37.0s)
