@@ -26,7 +26,8 @@ const CFG = {
   CITY_BITE: 0.1,       //   a big jungle takes a decaying city wedge with this chance (full speed in a Sink area,
                         //   from a deep jungle, or when the city has under half the supply it needs),
   CITY_SLOPE: 0.04, CITY_TRY_EVERY: 10, // and building climbs with size twice as fast
-  GROK_T: 60,           // a fed village or town that stays within one wedge of one size this long groks: it jumps a tier
+  GROK_T: 60,           // a fed town that stays within one wedge of one size this long groks: it jumps a tier
+  GROK_MIN: 18,         // and only a town this big, three quarters of the way to CRIT (smaller ones are mostly careless play)
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
@@ -550,7 +551,7 @@ function rules(state, C, ev) {
     if (G.flat == null || Math.abs(g.size - G.flat) > 1 || G.flatTier !== G.tier || !g.fed) {
       G.flat = g.size; G.flatSince = state.turn; G.flatTier = G.tier; continue;
     }
-    if (G.tier < 1 || G.tier >= 3 || state.turn - G.flatSince < CFG.GROK_T) continue;
+    if (G.tier < 1 || G.tier >= 3 || g.size < CFG.GROK_MIN || state.turn - G.flatSince < CFG.GROK_T) continue;
     G.tier++; state.builders++; state.stats.groks = (state.stats.groks || 0) + 1;
     if (G.tier === 2) G.townSince = state.turn;
     G.flat = g.size; G.flatSince = state.turn; G.flatTier = G.tier;
