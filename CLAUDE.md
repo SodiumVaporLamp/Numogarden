@@ -30,6 +30,7 @@ build.py          inlines sim + lore -> artifact/numogarden.html (claude.ai) and
 tools/bots.js     scripted players: greedy (most matching edges), zone-aware greedy, and random
 tools/harness.js  N seeds x T placements with all three bots; prints stats and the PASS line; exits 1 on FAIL
 tools/trace.js    follow one seed and print the big towns every 25 placements (supply, need, tier)
+tools/night.js    50 seeds x 600 placements, greedy only; night and data-centre stats and the NIGHT PASS line; exits 1 on FAIL
 tools/check.py    headless phone check (Playwright, 390x844, touch); exits 1 on FAIL
 results/          baseline harness output for three seed sets, and phone-check screenshots
 ```
@@ -50,6 +51,7 @@ SEEDBASE=2900000 node tools/harness.js        # added with grokking (confirmatio
 SEEDBASE=3300000 node tools/harness.js        # added with grokking (confirmation set for 18+ towns)
 SEEDBASE=3700000 node tools/harness.js        # added with maturity 40 (confirmation set)
 node tools/harness.js 20 1000                 # long-game drift check (diagnostic, no pass line)
+node tools/night.js                           # night check for data centres (50 x 600, greedy)
 node tools/harness.js 50 300 '{"CRIT":22}'    # try a CFG override without editing the file
 node tools/trace.js 325679                    # look inside one run
 python3 build.py && python3 tools/check.py    # build the page and run the phone check
@@ -126,6 +128,16 @@ Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 d
 - No current's share of current tile-steps rises more than 10 points above its share on the same seeds with current effects off (`CFG.CURRENT_FX = false`). Added with the currents work, before any effect was built.
 - No run has Plex (X) at 10% or more of wedges at placement 300.
 
+**Night pass line** (pre-registered for data centres before any of it was built; `tools/night.js`, greedy bot, 50 seeds × 600 placements, so about 480 placements of night). All must hold:
+- No terrain, D included, above 60% of wedges at the end in more than 5 of 50 runs.
+- The median D share at placement 600 is between 5% and 30%.
+- A town of 12+ wedges, or a data centre carrying a town's name, is there at the end in at least 45 of 50 runs.
+- The median run has at least 5 dreams come true. This line applies once dreaming is built; before that, all the others must hold.
+- No run has Plex (X) at 10% or more at the end.
+- Zero errors.
+
+It runs on seed sets 1000, 500000 and 900000 while building, then on one fresh set when data centres are done. The 300-placement pass line must still hold on all ten sets. Before data centres (`results/night-before-data-centres.txt`): night at a median of 120.5, end shares H 14%, F 16%, J 40%, S 20%, M 2%, X 8%, top share 46%, towns kept in 50 of 50, and the line fails only on D at 0%.
+
 The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 4.5 points at most. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs.
@@ -181,7 +193,14 @@ Google Fonts are stubbed, so it runs offline.
 
 ## Next (agreed with the author)
 
-- Nothing is queued. The backlog below is open, and the author picks what comes next.
+- **Data centres** (in progress; SVL's lead idea, agreed 2026-10-25). At night (weirdness 4) the corpus is spent: Field leaves the deck and data-centre tiles (terrain **D**) take its 0.26 weight. The rules:
+  - D clusters like the other terrains and matches only D and X. A whole D tile is AQ 78, zone 6, so beside a whole hamlet tile (zone 3) it opens Djynxx's Warp current.
+  - Cooling, by sea only: a D cluster needs one sea contact per 6 D wedges, on the supply pattern. Short of that, its most exposed D wedge decays and falls to meadow after `DECAY_T` steps, and jungle follows.
+  - Absorbing: a starving hamlet wedge beside D becomes D instead of meadow, and the data centre takes the town's name, so towns turn into machines instead of vanishing.
+  - Dreaming: every 6 steps a cooled cluster queues a rumor on one of its open edges, laid next step like metropolis tiles. Its arcs are as in `genTile`, with terrains weighted by the H/F/J/S wedges the cluster touches. The rumor rules then apply: 3 real matching neighbours make it real (+10★, a visitor), and it fades after 15.
+  - No rule eats fields. Towns live on fields or sea as before.
+  - Build order, harness-checked after each: D arrives at night with no needs; cooling; absorbing, with the name; dreaming; the page (how D looks, hint and inspector). The live page gets it in one push, once it can draw D.
+  - A scratch prototype on the v1 rules (587916c) shaped these rules. Its numbers are not leaned on; everything is re-measured on current rules.
 
 For currents the author took the spec's defaults: the pair and its neighbours as the area, a 3-step linger, weirdness 1, and the strengths as proposed.
 
