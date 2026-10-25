@@ -1,9 +1,12 @@
-/* Headless runs of the Numogarden rules: N seeds x T placements with two scripted players.
+/* Headless runs of the Numogarden rules: N seeds x T placements with three scripted players
+   (greedy, zone-aware greedy, random).
    Usage: node tools/harness.js [runs=50] [turns=300] ['{"CFG_KEY": value}']
    Seeds are SEEDBASE + i*7919 (SEEDBASE env var, default 1000). The PASS line is the pre-registered check
    in CLAUDE.md; the process exits 1 when it fails so it can gate a commit. */
 const S = require('../src/sim.js');
-const { greedyMove, randomMove } = require('./bots.js');
+const { greedyMove, zoneMove, randomMove } = require('./bots.js');
+const MOVES = { greedy: greedyMove, zone: zoneMove, random: randomMove };
+const CNAMES = ['Plex', 'Surge', 'Hold', 'Warp', 'Sink'];
 const RUNS = +process.argv[2] || 50, TURNS = +process.argv[3] || 300;
 if (process.argv[4]) Object.assign(S.CFG, JSON.parse(process.argv[4]));
 
@@ -11,12 +14,14 @@ let HIST = null;
 function run(seed, bot) {
   const state = S.newGame(seed);
   const snaps = {};
+  const cur = {}; for (const c of CNAMES) cur[c] = 0; // tile-steps under each current
   let errors = 0, firstErr = null;
   for (let t = 0; t < TURNS; t++) {
     try {
       while (state.choices > 0) S.choose(state, S.rint(state.rng, 2) ? 'x' : 'r');
-      const mv = bot === 'greedy' ? greedyMove(state) : randomMove(state);
+      const mv = MOVES[bot](state);
       const res = S.place(state, mv.slot, mv.q, mv.r, mv.k);
+      for (const c of S.activeCurrents(state)) cur[c.name] += S.currentArea(state, c).length;
       if (res.ok) { HIST.m[res.m] = (HIST.m[res.m] || 0) + 1; HIST.n[res.n] = (HIST.n[res.n] || 0) + 1; if (res.n >= 3 && res.m === res.n) HIST.clean++; HIST.total++; }
       if (!res.ok) throw new Error('placement refused: ' + res.why);
       for (const k in state.map) {
@@ -32,17 +37,27 @@ function run(seed, bot) {
   const maxH = Math.max(0, ...v.labels.map(l => l.size));
   const ev = {};
   for (const e of state.events) ev[e.kind] = (ev[e.kind] || 0) + 1;
-  return { seed, bot, errors, firstErr, sh, snaps, st: state.stats, stars: state.stars, level: state.level, towns: v.labels.length, maxH, tiles: Object.keys(state.map).length, ev };
+  const x300 = (snaps[300] || sh).X;
+  return { seed, bot, errors, firstErr, sh, snaps, cur, x300, st: state.stats, stars: state.stars, level: state.level, towns: v.labels.length, maxH, tiles: Object.keys(state.map).length, ev };
 }
 
 function median(a) { const s = a.slice().sort((x, y) => x - y); const n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; }
 function pct(x) { return (100 * x).toFixed(1) + '%'; }
 
 const t0 = Date.now();
-for (const bot of ['greedy', 'random']) {
+for (const bot of ['greedy', 'zone', 'random']) {
   const R = [];
   HIST = { m: {}, n: {}, clean: 0, total: 0 };
-  for (let i = 0; i < RUNS; i++) R.push(run((+process.env.SEEDBASE || 1000) + i * 7919, bot));
+  const seeds = []; for (let i = 0; i < RUNS; i++) seeds.push((+process.env.SEEDBASE || 1000) + i * 7919);
+  for (const s of seeds) R.push(run(s, bot));
+  // the same seeds with current effects off: each current's share is judged against where it falls anyway
+  let base = null;
+  if (bot !== 'random') {
+    const h = HIST, fx = S.CFG.CURRENT_FX;
+    S.CFG.CURRENT_FX = false; HIST = { m: {}, n: {}, clean: 0, total: 0 };
+    base = seeds.map(s => run(s, bot));
+    S.CFG.CURRENT_FX = fx; HIST = h;
+  }
   const hp = o => Object.keys(o).sort().map(k => k + ':' + (100 * o[k] / HIST.total).toFixed(1) + '%').join(' ');
   console.log(`\n[${bot}] matches per placement  ${hp(HIST.m)}\n[${bot}] neighbours per placement ${hp(HIST.n)}\n[${bot}] clean fits (n>=3, all match) ${(100 * HIST.clean / HIST.total).toFixed(1)}%`);
   const dom = R.filter(r => Math.max(r.sh.H, r.sh.F, r.sh.J, r.sh.S, r.sh.M) > 0.60).length;
@@ -65,15 +80,36 @@ for (const bot of ['greedy', 'random']) {
     const ss = R.filter(r => r.snaps[T]);
     if (!ss.length) continue;
     const m = k => ss.reduce((a, r) => a + r.snaps[T][k], 0) / ss.length;
-    console.log(`  t${T}: H ${pct(m('H'))} F ${pct(m('F'))} J ${pct(m('J'))} S ${pct(m('S'))} M ${pct(m('M'))}`);
+    console.log(`  t${T}: H ${pct(m('H'))} F ${pct(m('F'))} J ${pct(m('J'))} S ${pct(m('S'))} M ${pct(m('M'))} X ${pct(m('X'))}`);
   }
+  // currents: tile-steps per type pooled over runs, and Plex (X) share at placement 300
+  const curShares = RR => {
+    const all = {}; for (const c of CNAMES) all[c] = RR.reduce((a, r) => a + r.cur[c], 0);
+    const tot = CNAMES.reduce((a, c) => a + all[c], 0);
+    const sh = {}; for (const c of CNAMES) sh[c] = tot ? all[c] / tot : 0;
+    return { all, sh };
+  };
+  const { all: curAll, sh: curSh } = curShares(R);
+  console.log(`current tile-steps per run: ${CNAMES.map(c => `${c} ${(curAll[c] / R.length).toFixed(0)} (${pct(curSh[c])})`).join('  ')}`);
+  let curRise = 0, curRiser = '-';
+  if (base) {
+    const bSh = curShares(base).sh;
+    for (const c of CNAMES) if (curSh[c] - bSh[c] > curRise) { curRise = curSh[c] - bSh[c]; curRiser = c; }
+    console.log(`  with effects off:         ${CNAMES.map(c => `${c} ${pct(bSh[c])}`).join('  ')}  biggest rise ${curRiser} +${(100 * curRise).toFixed(1)} pts`);
+  }
+  const xMax = Math.max(...R.map(r => r.x300)), xOver = R.filter(r => r.x300 >= 0.10).length;
+  console.log(`X share at t300: mean ${pct(R.reduce((a, r) => a + r.x300, 0) / R.length)}  max ${pct(xMax)}  runs >= 10%: ${xOver}`);
   const evAll = {}; for (const r of R) for (const k in r.ev) evAll[k] = (evAll[k] || 0) + r.ev[k];
   console.log(`event kinds (last 80 per run, summed): ${JSON.stringify(evAll)}`);
   console.log(`errors: ${errs}${errs ? '\n' + R.find(r => r.firstErr).firstErr : ''}`);
-  if (bot === 'greedy') {
-    const pass = dom <= 5 && noSelf === 0 && noRecl === 0 && med >= 60 && med <= 180 && errs === 0;
-    if (!pass) process.exitCode = 1;
-    console.log(`PASS CRITERIA (greedy): ${pass ? 'PASS' : 'FAIL'}  [dominance ${dom}<=5, self-build all ${noSelf === 0}, reclaim all ${noRecl === 0}, median first self-build ${med} in 60..180, errors ${errs}]`);
+  if (bot !== 'random') {
+    const pass = dom <= 5 && noSelf === 0 && noRecl === 0 && med >= 60 && med <= 180 && errs === 0 && curRise <= 0.10 && xOver === 0;
+    const line = `[dominance ${dom}<=5, self-build all ${noSelf === 0}, reclaim all ${noRecl === 0}, median first self-build ${med} in 60..180, errors ${errs}, current rise ${curRiser} +${(100 * curRise).toFixed(1)}<=10 pts, X>=10% at t300 in ${xOver} runs]`;
+    // the greedy line gates; the zone-aware bot is a diagnostic for whether chasing currents breaks balance
+    if (bot === 'greedy') {
+      if (!pass) process.exitCode = 1;
+      console.log(`PASS CRITERIA (greedy): ${pass ? 'PASS' : 'FAIL'}  ${line}`);
+    } else console.log(`same criteria (zone-aware, diagnostic): ${pass ? 'pass' : 'fail'}  ${line}`);
   }
 }
 console.log(`\n(${((Date.now() - t0) / 1000).toFixed(1)}s)`);

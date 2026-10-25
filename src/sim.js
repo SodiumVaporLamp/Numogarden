@@ -24,6 +24,7 @@ const CFG = {
   SPRAWL_BASE: 0.35, SPRAWL_SLOPE: 0.02, SPRAWL_MAX: 0.85,
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
   METRO_EVERY: 10,
+  CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25] },
@@ -648,6 +649,39 @@ function levelUp(state, ev) {
   while (state.level < L) { state.level++; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
 }
 
+/* syzygies on the board: adjacent real tiles whose zones sum to nine. Each pair carries the current
+   named by the difference of its zones, running from the higher zone to the lower. */
+function syzygyPairs(state) {
+  const out = [];
+  for (const k in state.map) {
+    const t = state.map[k];
+    if (t.kind === 'r') continue;
+    for (let i = 0; i < 3; i++) {
+      const kb = key(t.q + DIRS[i][0], t.r + DIRS[i][1]), nb = state.map[kb];
+      if (!nb || nb.kind === 'r' || t.z + nb.z !== 9) continue;
+      const hi = Math.max(t.z, nb.z);
+      const [A, B] = t.id < nb.id ? [t, nb] : [nb, t];
+      out.push({ a: A.id, b: B.id, ka: key(A.q, A.r), kb: key(B.q, B.r), hi, lo: 9 - hi, name: CURRENTS[2 * hi - 9] });
+    }
+  }
+  return out;
+}
+/* where a current acts: its two tiles and every real tile touching either */
+function currentArea(state, c) {
+  const out = [], seen = new Set();
+  for (const k0 of [c.ka, c.kb]) {
+    const t = state.map[k0]; if (!t) continue;
+    for (let i = -1; i < 6; i++) {
+      const kk = i < 0 ? k0 : key(t.q + DIRS[i][0], t.r + DIRS[i][1]), nb = state.map[kk];
+      if (!nb || nb.kind === 'r' || seen.has(kk)) continue;
+      seen.add(kk); out.push(nb);
+    }
+  }
+  return out;
+}
+/* currents in force this step (measurement only until the current rules land) */
+function activeCurrents(state) { return state.level >= 1 ? syzygyPairs(state) : []; }
+
 /* clusters for the renderer: per wedge cluster size, tier and group tag, plus town labels */
 function view(state) {
   const C = clusters(state);
@@ -685,7 +719,8 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, XW, CFG, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf };
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
+  syzygyPairs, currentArea, activeCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);

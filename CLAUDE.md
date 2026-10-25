@@ -27,8 +27,8 @@ src/sim.js        rules engine: state, placement, scoring, clusters, the living 
 src/game.html     the page: rendering, input, tray, sheets, saving. Placeholders /*@@SIM@@*/ and /*@@LORE@@*/
 data/lore.json    45 demon descriptions from Numogram Lab, indexed by mesh number
 build.py          inlines sim + lore -> artifact/numogarden.html (claude.ai) and docs/index.html (standalone)
-tools/bots.js     scripted players: greedy (most matching edges) and random
-tools/harness.js  N seeds x T placements with both bots; prints stats and the PASS line; exits 1 on FAIL
+tools/bots.js     scripted players: greedy (most matching edges), zone-aware greedy, and random
+tools/harness.js  N seeds x T placements with all three bots; prints stats and the PASS line; exits 1 on FAIL
 tools/trace.js    follow one seed and print the big towns every 25 placements (supply, need, tier)
 tools/check.py    headless phone check (Playwright, 390x844, touch); exits 1 on FAIL
 results/          baseline harness output for three seed sets, and phone-check screenshots
@@ -97,6 +97,12 @@ Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 d
 - Every run has at least one self-build and at least one jungle reclamation after placement 50.
 - The median placement of the first self-build is between 60 and 180. The cozy phase comes first.
 - Zero errors.
+- No current's share of current tile-steps rises more than 10 points above its share on the same seeds with current effects off (`CFG.CURRENT_FX = false`). Added with the currents work, before any effect was built.
+- No run has Plex (X) at 10% or more of wedges at placement 300.
+
+The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
+
+**Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates.
 
 **Baseline** (`results/`), identical config, three seed sets:
 
@@ -129,6 +135,7 @@ It passed on v1 with Google Fonts stubbed; the sandbox couldn't reach them.
 5. **Sub-linear supply created a runaway.** Making big towns need less supply per wedge let a seaside city reach **75% of the map in every run**: sea contacts never get eaten, so it was always fed. Supply went back to linear. This is the main damping in the game; keep it.
 6. **Critical mass 22 passed at exactly 60** on the tuning seeds. That's no margin.
 7. **Overfit to the tuning seeds.** A version that passed on the tuning set **failed on held-out seeds**: median 47, and one run with no self-build after turn 50. The fix was structural: the maturity rule (30 steps as a town), the well-fed wake rule, and critical mass back at 24. That combination passes on all three sets.
+8. **Warp dominates by arithmetic.** The first draft of the currents criterion was "no current type above 50% of current tile-steps". It failed before any effect existed: Warp held 52–53% on all three seed sets. Modulo 9, H = 8, F = 6 and J = S = 1, so a tile's zone depends only on its H and F counts. All-jungle and all-sea tiles are zone 6 and all-hamlet tiles zone 3, so Warp (6::3) forms wherever towns meet the Outside. The AQ is the Lab's and can't be tuned, so the author re-registered the criterion relative to the no-effects baseline, before building the mechanic.
 
 ## Next: currents (agreed with the author)
 
