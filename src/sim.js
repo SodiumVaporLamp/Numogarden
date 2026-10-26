@@ -22,7 +22,8 @@ const CFG = {
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
   STARVE_MIN: 4,        // hamlets smaller than this get by on their own
   FALLOW_J: 6,          // fields go fallow only beside a jungle at least this big
-  SUPPLY_K: 3,          // hamlet wedges one field/sea contact can feed
+  SUPPLY_K: 3,          // hamlet wedges one sea wedge on a town's border feeds
+  FIELD_FEEDS: 1,       // hamlet wedges one field wedge feeds, the whole field touching a town, shared between its towns
   DECAY_T: 3,           // hungry steps before a wedge falls to meadow
   MEADOW_TO_JUNGLE: 0.35,
   JCRIT: 12,            // a jungle this big creeps into neglected land
@@ -433,9 +434,27 @@ function wt(C, x) { return C.tiles[(x / 6) | 0].w[x % 6]; }
 function getD(C, x) { return C.tiles[(x / 6) | 0].d[x % 6]; }
 function setD(C, x, v) { C.tiles[(x / 6) | 0].d[x % 6] = v; }
 
-/* supply a town needs: linear in size, which is what stops one city eating the map
-   (a sub-linear version let a seaside city reach 75% of the map in every run) */
-function needFor(size) { return Math.ceil(size / CFG.SUPPLY_K); }
+/* food: how many hamlet wedges a town can feed. Each sea wedge on its border feeds SUPPLY_K. Each field touching it
+   feeds FIELD_FEEDS per field wedge, the whole field, shared between the towns that touch it by their size.
+   A town needs food for every one of its wedges: linear in size, which is what stops one city eating the map
+   (a sub-linear version let a seaside city reach 75% of the map in every run, tuning history 5). */
+function feed(C) {
+  const H = C.byType.H, F = C.byType.F, fieldTowns = new Map();
+  for (const g of H.list) {
+    const sea = new Set(), fields = new Set();
+    for (const x of g.w) for (const y of adjW(C, x)) {
+      const c = wt(C, y);
+      if (c === 'S') sea.add(y);
+      else if (c === 'F' && F.cid[y] >= 0) fields.add(F.cid[y]);
+    }
+    g.sea = sea; g.fields = fields; g.food = CFG.SUPPLY_K * sea.size; g.sharesField = false;
+    for (const f of fields) { if (!fieldTowns.has(f)) fieldTowns.set(f, []); fieldTowns.get(f).push(g); }
+  }
+  for (const [f, towns] of fieldTowns) {
+    const mass = F.list[f].size, total = towns.reduce((a, t) => a + t.size, 0);
+    for (const t of towns) { t.food += CFG.FIELD_FEEDS * mass * t.size / total; if (towns.length > 1) t.sharesField = true; }
+  }
+}
 function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; i < TT.length; i++) if (size >= TT[i]) k = i; return k; }
 /* a town wakes once it has been a town for MATURE steps (half that in a Surge) and is at critical mass,
    or still a town after once being a city, or very well fed; the page asks the same question */
@@ -446,7 +465,7 @@ function matureIn(state, G, surge) {
 function isAwake(state, g, G, surge) {
   const mature = matureIn(state, G, surge) === 0;
   const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
-  const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
+  const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.food >= CFG.FLUSH * g.size; // a well-fed town wakes early
   return mature && (big || flush);
 }
 
@@ -600,25 +619,16 @@ function rules(state, C, ev) {
     pend.add(k); P.push(tag ? { id: t.id, i, from: t.w[i], to, cause, tag } : { id: t.id, i, from: t.w[i], to, cause }); return true;
   };
 
-  // hamlets: supply from adjacent fields and sea; shared seas mean trade
+  // hamlets: food from the fields and sea they touch; shared seas mean trade
+  feed(C);
   const seaTowns = new Map();
-  for (const g of H.list) {
-    const sup = new Set();
-    for (const x of g.w) for (const y of adjW(C, x)) {
-      const c = wt(C, y);
-      if (c === 'F' || c === 'S') {
-        sup.add(y);
-        if (c === 'S') { const sg = S.cid[y]; if (sg >= 0) { if (!seaTowns.has(sg)) seaTowns.set(sg, new Set()); seaTowns.get(sg).add(g.gi); } }
-      }
-    }
-    g.supply = sup.size; g.need = needFor(g.size);
-  }
+  for (const g of H.list) for (const y of g.sea) { const sg = S.cid[y]; if (sg >= 0) { if (!seaTowns.has(sg)) seaTowns.set(sg, new Set()); seaTowns.get(sg).add(g.gi); } }
   for (const hs of seaTowns.values()) if (hs.size >= 2) for (const gi of hs) H.list[gi].trade = true;
   // a city holds its ground against the jungle unless it is starving badly
-  for (const g of H.list) g.shield = g.size >= CFG.CITY && 2 * g.supply >= g.need;
+  for (const g of H.list) g.shield = g.size >= CFG.CITY && 2 * g.food >= g.size;
 
   for (const g of H.list) {
-    if (g.supply >= g.need) { g.fed = true; for (const x of g.w) setD(C, x, 0); continue; }
+    if (g.food >= g.size) { g.fed = true; for (const x of g.w) setD(C, x, 0); continue; }
     g.fed = false;
     if (g.size < CFG.STARVE_MIN) continue;
     const free = fx.hold.size ? g.w.filter(x => !held(x)) : g.w; // Hold: no decay in its area
@@ -771,7 +781,7 @@ function rules(state, C, ev) {
     // a town that has ever reached critical mass stays awake while it is still a town
     const awake = isAwake(state, g, G, surge);
     if (!awake || !g.fed) continue;
-    if (needFor(g.size + 1) > g.supply) continue;
+    if (g.food < g.size + 1) continue; // food to spare for one more wedge
     const city = g.size >= CFG.CITY, over = Math.max(0, g.size - CFG.CRIT);
     let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + (city ? CFG.CITY_SLOPE : CFG.SPRAWL_SLOPE) * over);
     if (g.trade) p += CFG.TRADE_BONUS;
@@ -927,6 +937,7 @@ function currentFx(state) {
    a data centre's cooling, plus town labels. It only reads the state, so the page can call it as often as it likes. */
 function view(state) {
   const C = clusters(state), fx = currentFx(state);
+  feed(C);
   const info = {}, whole = {};
   for (const T of LAND) {
     for (const g of C.byType[T].list) {
@@ -937,14 +948,12 @@ function view(state) {
       if (T === 'D') { // cooling, for the page: sea contacts against the need
         const sea = new Set(); for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
         cell.cool = sea.size; cell.need = Math.ceil(g.size / CFG.COOL_K);
-      } else if (T === 'H') { // food as the hunger rule counts it, and whether the town is awake and building
-        const sup = new Set(); for (const x of g.w) for (const y of adjW(C, x)) { const c = wt(C, y); if (c === 'F' || c === 'S') sup.add(y); }
-        g.supply = sup.size; g.need = needFor(g.size);
+      } else if (T === 'H') { // food as the hunger rule counts it (feed()), and whether the town is awake and building
         let surge = false;
         if (fx.surge.size) for (const x of g.w) if (fx.surge.has(C.tiles[(x / 6) | 0].id)) { surge = true; break; }
-        cell.supply = g.supply; cell.need = g.need;
+        cell.food = g.food; cell.sea = g.sea.size; cell.shared = g.sharesField;
         cell.awake = isAwake(state, g, state.groups[tag], surge);
-        cell.building = cell.awake && needFor(g.size + 1) <= g.supply;
+        cell.building = cell.awake && g.food >= g.size + 1;
         cell.matureIn = matureIn(state, state.groups[tag], surge);
       }
       if (tag) whole[T + tag] = Math.max(whole[T + tag] || 0, g.size);
@@ -960,7 +969,7 @@ function view(state) {
     if (!G || !G.name || g.size < CFG.TIERS.H[1]) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), supply: g.supply, need: g.need, q: sx / g.size, r: sy / g.size });
+    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), food: g.food, q: sx / g.size, r: sy / g.size });
   }
   // data centres that took a town's name; a split data centre keeps its name on its largest piece
   const byName = new Map();

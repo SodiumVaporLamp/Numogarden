@@ -47,13 +47,13 @@ async def night_world(page):
       return { x: r.left + s[0], y: r.top + s[1], size: best.size };
     }'''
     res = dict(made)
-    for T, word in (('H', 'food'), ('D', 'cooling')):
+    for T, word in (('H', 'food'), ('D', 'cool')):
         pt = await page.evaluate(aim, T)
         if not pt: res[T] = 'none found'; continue
         await page.wait_for_timeout(150)
         await page.touchscreen.tap(pt['x'], pt['y']); await page.wait_for_timeout(500)
         text = await page.evaluate('document.getElementById("sheet").innerText')
-        named = ('needs' in text or 'gets by' in text) if T == 'H' else 'data centre' in text
+        named = 'can feed' in text if T == 'H' else 'can cool' in text
         if await page.evaluate('!!document.getElementById("closeS")'): await page.tap('#closeS'); await page.wait_for_timeout(250)
         lit = await page.evaluate('__numo.ui.focus && __numo.ui.focus.T')
         hint = await page.evaluate('document.getElementById("hint").textContent')

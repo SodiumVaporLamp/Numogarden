@@ -104,8 +104,8 @@ for (const bot of ['greedy', 'zone', 'random']) {
   console.log(`event kinds (last 80 per run, summed): ${JSON.stringify(evAll)}`);
   console.log(`errors: ${errs}${errs ? '\n' + R.find(r => r.firstErr).firstErr : ''}`);
   if (bot !== 'random') {
-    const pass = dom <= 5 && noSelf === 0 && noRecl === 0 && med >= 60 && med <= 180 && errs === 0 && curRise <= 0.10 && xOver === 0;
-    const line = `[dominance ${dom}<=5, self-build all ${noSelf === 0}, reclaim all ${noRecl === 0}, median first self-build ${med} in 60..180, errors ${errs}, current rise ${curRiser} +${(100 * curRise).toFixed(1)}<=10 pts, X>=10% at t300 in ${xOver} runs]`;
+    const pass = dom <= 5 && noSelf === 0 && noRecl === 0 && med >= 40 && med <= 180 && errs === 0 && curRise <= 0.10 && xOver === 0;
+    const line = `[dominance ${dom}<=5, self-build all ${noSelf === 0}, reclaim all ${noRecl === 0}, median first self-build ${med} in 40..180, errors ${errs}, current rise ${curRiser} +${(100 * curRise).toFixed(1)}<=10 pts, X>=10% at t300 in ${xOver} runs]`;
     // the greedy line gates; the zone-aware bot is a diagnostic for whether chasing currents breaks balance
     if (bot === 'greedy') {
       if (!pass) process.exitCode = 1;

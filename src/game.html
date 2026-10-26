@@ -549,8 +549,9 @@ function pieceOn(tl, T, wi) {
   if (best) { best.G = state.groups[best.cell.tag] || null; best.name = best.G && best.G.name; best.piece = best.cell.size < best.cell.whole; }
   return best;
 }
-/* what the map shows for a tapped town or data centre: its wedges, the field and sea wedges that feed it
-   (or the sea that cools it), and its fading wedges. A fading wedge beside a jungle of JCRIT or more can be taken. */
+/* what the map shows for a tapped town or data centre: its wedges, what feeds it (every wedge of each field it
+   touches, and the sea on its border) or the sea that cools it, and its fading wedges.
+   A fading wedge beside a jungle of JCRIT or more can be taken. */
 function focusOf(tl, wi) {
   const p = (wi != null && tl.w[wi] === 'D' ? pieceOn(tl, 'D', wi) : null) || pieceOn(tl, 'H', wi) || pieceOn(tl, 'D', wi);
   if (!p) return null;
@@ -560,20 +561,30 @@ function focusOf(tl, wi) {
     for (let i = 0; i < 6; i++) if (inf[i] === p.cell) members.add(t.id + ':' + i);
   }
   const bigJungle = (u, j) => u.w[j] === 'J' && (view.info[u.id] || [])[j] && view.info[u.id][j].size >= S.CFG.JCRIT;
+  const fields = new Set(); // the fields it touches, as view() cells
   for (const id of members) {
     const [tid, i] = id.split(':').map(Number), t = idMap[tid];
-    for (const [u, j] of adjOf(t, i)) if (u.w[j] === 'S' || (T === 'H' && u.w[j] === 'F')) food.add(u.id + ':' + j);
+    for (const [u, j] of adjOf(t, i)) {
+      if (u.w[j] === 'S') food.add(u.id + ':' + j);
+      else if (T === 'H' && u.w[j] === 'F' && (view.info[u.id] || [])[j]) fields.add(view.info[u.id][j]);
+    }
     if (t.d[i] > 0) {
       fading.add(id);
       if (T === 'H' && adjOf(t, i).some(([u, j]) => bigJungle(u, j))) risk.add(id);
     }
   }
+  if (fields.size) for (const k in state.map) {
+    const t = state.map[k], inf = view.info[t.id]; if (!inf) continue;
+    for (let i = 0; i < 6; i++) if (t.w[i] === 'F' && fields.has(inf[i])) food.add(t.id + ':' + i);
+  }
   return Object.assign(p, { T, members, food, fading, risk });
 }
+/* food in hamlet wedges: what its fields and sea can feed (feed() in sim.js), against its size */
 function foodLine(c) {
-  const has = plural(c.supply, 'field or sea wedge');
-  if (c.size < S.CFG.STARVE_MIN) return `It has ${has} next to it. A hamlet this small gets by on its own.`;
-  return `It has ${has} next to it and needs ${c.need}, so it ${c.supply >= c.need ? 'is fed' : 'is going hungry and fades one wedge at a time'}.`;
+  const can = `Its fields and sea can feed ${plural(Math.floor(c.food), 'hamlet wedge')}`;
+  const shared = c.shared ? ' A field it touches feeds another town too, so they share it by size.' : '';
+  if (c.size < S.CFG.STARVE_MIN) return `${can}. A hamlet this small gets by on its own.${shared}`;
+  return `${can}, and it has ${c.size}, so it ${c.food >= c.size ? 'is fed' : 'is going hungry and fades one wedge at a time'}.${shared}`;
 }
 /* why a town is or isn't building itself, by the same test the rules use (isAwake in sim.js) */
 function wakeLine(c, G) {
@@ -581,7 +592,7 @@ function wakeLine(c, G) {
   if (c.awake) return 'It is awake. It builds itself again once it has food to spare.';
   if (!G || G.townSince == null || c.size < S.CFG.TIERS.H[2]) return '';
   const twice = S.CFG.FLUSH === 2 ? 'twice' : S.CFG.FLUSH + ' times';
-  const ready = c.size >= S.CFG.CRIT || (G.tier >= 3) || (S.CFG.FLUSH > 0 && c.supply >= S.CFG.FLUSH * c.need);
+  const ready = c.size >= S.CFG.CRIT || (G.tier >= 3) || (S.CFG.FLUSH > 0 && c.food >= S.CFG.FLUSH * c.size);
   if (c.matureIn > 0) return ready ? `It wakes up after ${plural(c.matureIn, 'more placement')} as a town.`
     : `After ${plural(c.matureIn, 'more placement')} as a town, it can wake up once it reaches ${S.CFG.CRIT} wedges or has ${twice} the food it needs.`;
   return `It wakes up at ${S.CFG.CRIT} wedges, or sooner with ${twice} the food it needs.`;
@@ -593,18 +604,18 @@ function focusNote(f) {
   let s = f.food.size ? 'Dots on the map mark the fields and sea that feed it.' : '';
   if (n) s += n === 1 ? ' An outline marks the wedge that is fading.' : ` Outlines mark the ${n} wedges that are fading.`;
   // a fed town only fades where a Sink current wears it down
-  if (n && (f.cell.supply >= f.cell.need || f.cell.size < S.CFG.STARVE_MIN)) s += n === 1 ? ' A Sink current is wearing it down.' : ' A Sink current is wearing them down.';
+  if (n && (f.cell.food >= f.cell.size || f.cell.size < S.CFG.STARVE_MIN)) s += n === 1 ? ' A Sink current is wearing it down.' : ' A Sink current is wearing them down.';
   if (r) s += r === n ? (n === 1 ? ' It borders a big jungle, which can take it.' : ' They border a big jungle, which can take them.')
     : r === 1 ? ' The red one borders a big jungle, which can take it.' : ` The ${r} red ones border a big jungle, which can take them.`;
   return s.trim();
 }
 function focusHint(f) {
   const c = f.cell;
-  if (f.T === 'D') return `${f.name && !f.piece ? f.name + ', a data centre' : 'This data centre'}: cooling ${c.cool} of ${c.need}${c.cool < c.need ? ', so it is running hot' : ''}.${f.food.size ? ' Dots mark the sea that cools it.' : ''}`;
+  if (f.T === 'D') return `${f.name && !f.piece ? f.name + ', a data centre' : 'This data centre'}: its sea can cool ${plural(c.cool * S.CFG.COOL_K, 'wedge')}, and it has ${c.size}${c.cool < c.need ? ', so it is running hot' : ''}.${f.food.size ? ' Dots mark the sea that cools it.' : ''}`;
   const who = f.name ? (f.piece ? 'This piece of ' + f.name : f.name) : 'This ' + TIER_H[Math.max(0, c.tier)];
   const dots = f.food.size ? ' Dots mark its fields and sea.' : '';
   if (c.size < S.CFG.STARVE_MIN) return `${who} is small enough to get by on its own.${dots}`;
-  return `${who}: food ${c.supply} of ${c.need}${c.supply < c.need ? ', so it is going hungry' : ''}.${dots}`;
+  return `${who}: food for ${plural(Math.floor(c.food), 'wedge')}, and it has ${c.size}${c.food < c.size ? ', so it is going hungry' : ''}.${dots}`;
 }
 /* what a current has to act on right now, so a quiet one doesn't look broken */
 function currentNow(name, ids) {
@@ -635,9 +646,9 @@ function openInspector(tl, wi) {
     if (L >= 2 && G && G.name && G.aq != null) townLines += `<p class="readout">AQ ${esc(G.name)} = ${G.aq} → zone ${G.zone}${G.homed ? ' · the name comes home' : ''}</p>`;
   }
   if (dc) {
-    const c = dc.cell, sea = n => plural(n, 'sea wedge');
+    const c = dc.cell, cools = `The sea next to it can cool ${c.cool * S.CFG.COOL_K}`;
     dcLines += `<p>${dc.piece && dc.name ? `A piece of the ${esc(dc.name)} data centre: ${plural(c.size, 'wedge')}.` : `A data centre of ${plural(c.size, 'wedge')}.`} `
-      + (c.cool >= c.need ? `It is cooled by ${sea(c.cool)} and needs ${c.need}.` : `It needs ${sea(c.need)} next to it to stay cool and has ${c.cool}, so it is running hot. Its most exposed wedge falls to meadow after ${S.CFG.DECAY_T} hot placements.`)
+      + (c.cool >= c.need ? `${cools}, so it stays cool.` : `${cools}, so it is running hot. Its most exposed wedge falls to meadow after ${S.CFG.DECAY_T} hot placements.`)
       + `${dc.name && !dc.piece ? ' It took its name from a town it absorbed.' : ''}</p>`;
     if (f && f.T === 'D' && focusNote(f)) dcLines += `<p class="note">${focusNote(f)}</p>`;
   }
@@ -713,9 +724,9 @@ function openInfo() {
     <details>
       <summary>The land</summary>
       <ul>
-        <li><b>Hamlets</b> need food: one field or sea wedge next to them for every ${S.CFG.SUPPLY_K} hamlet wedges. A town without enough goes hungry, and its edge fades into meadow one wedge at a time. Groups of under ${S.CFG.STARVE_MIN} get by on their own.</li>
-        <li><b>Fields</b> feed the hamlets next to them. A field with no hamlet beside it goes fallow next to a jungle of ${S.CFG.FALLOW_J} or more.</li>
-        <li><b>Sea</b> feeds hamlets too, and towns never build over it. Lakes give ferries, and two towns on one sea trade and grow faster.</li>
+        <li><b>Hamlets</b> need food for every wedge. A field feeds ${S.CFG.FIELD_FEEDS === 1 ? 'one hamlet wedge' : S.CFG.FIELD_FEEDS + ' hamlet wedges'} for each of its wedges, the whole field at once, and towns that touch the same field share it by size. Each sea wedge on a town's border feeds ${S.CFG.SUPPLY_K}. A town without enough goes hungry, and its edge fades into meadow one wedge at a time. Groups of under ${S.CFG.STARVE_MIN} get by on their own.</li>
+        <li><b>Fields</b> feed the towns that touch them, so a big field can feed a big town through a short border. A town that builds over its own field eats into its food. A field with no hamlet beside it goes fallow next to a jungle of ${S.CFG.FALLOW_J} or more.</li>
+        <li><b>Sea</b> feeds the hamlets on its shore, and towns never build over it. Lakes give ferries, and two towns on one sea trade and grow faster.</li>
         <li><b>Jungle</b> is the Outside. It grows over meadow next to it, and a jungle of ${S.CFG.JCRIT} or more takes hungry hamlets and untended fields.</li>
         <li><b>Meadow</b> is the land in between. It matches fields and jungle, and towns build on it first.</li>
         <li><b>Plex</b> tiles are wild. They match every edge and join every group around them without adding to its size.</li>
@@ -730,7 +741,7 @@ function openInfo() {
         <li>A fed town of ${S.CFG.GROK_MIN} or more that stays about the same size for ${S.CFG.GROK_T} placements groks: it counts as a city from then on, wakes like one, and earns a builder.</li>
         <li>A city holds off the jungle, which takes its fading wedges a third as fast. That stops when the city has under half the food it needs, when the jungle is ${S.CFG.TIERS.J[2]} or more, or inside a Sink current. Cities also build faster as they grow.</li>
         <li>A metropolis lays a whole tile of its own every ${S.CFG.METRO_EVERY} placements while it is fed.</li>
-        <li>A town's label shows its food: the field and sea wedges next to it, against what it needs. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
+        <li>A town's label shows its food: how many hamlet wedges its fields and sea can feed, against how many it has. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
       </ul>
     </details>
     ${state.level >= 1 ? `<details>
@@ -763,7 +774,7 @@ function openInfo() {
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null ? ' Dreams are ghosts with drifting lines.' : ''}</li>
         ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
-        <li>Labels show a town's food, or a data centre's cooling, as what it has against what it needs.</li>
+        <li>Labels show how many wedges a town's fields and sea can feed, or a data centre's sea can cool, against how many it has.</li>
         <li>Tap a town or data centre to light it up. Dots mark what feeds or cools it, and outlines mark its fading wedges. Red ones border a big jungle that can take them.</li>
       </ul>
     </details>
@@ -1210,8 +1221,8 @@ function drawText(now) {
     ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif';
     const name = lb.name, tw = ctx.measureText(name).width;
     const sub = lb.dc ? 'data centre' : L >= 2 ? `AQ ${lb.aq} → ${lb.zone}${lb.homed ? ' ◎' : ''}` : TIER_H[Math.max(0, lb.tier)];
-    // beside the name: a town's food or a data centre's cooling, what it has against what it needs
-    const have = lb.dc ? lb.cool : lb.supply, short = have < lb.need, badge = lb.need != null ? have + '/' + lb.need : '';
+    // beside the name: the wedges a town's fields and sea can feed, or a data centre's sea can cool, against its size
+    const have = lb.dc ? lb.cool * S.CFG.COOL_K : Math.floor(lb.food), short = have < lb.size, badge = have + '/' + lb.size;
     ctx.font = '500 10px "IBM Plex Mono", monospace';
     const sw = ctx.measureText(sub).width, gw = badge ? ctx.measureText(badge).width + 6 : 0;
     const bw = Math.max(tw + gw, sw) + 18, bh = 34, x0 = sx - bw / 2, y0 = sy - bh / 2;
