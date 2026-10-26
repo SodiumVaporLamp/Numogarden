@@ -371,7 +371,13 @@ function commitPending(state, ev) {
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
     if (s.dream) {
-      addTile(state, s.q, s.r, s.w, 'r', { dream: true, dreamOf: s.tag });
+      // the machine believes its own dream: every side of it that faces a data centre is data centre
+      const w = s.w.slice();
+      for (let i = 0; i < 6; i++) {
+        const nb = state.map[key(s.q + DIRS[i][0], s.r + DIRS[i][1])];
+        if (nb && nb.kind !== 'r' && nb.w[(i + 3) % 6] === 'D') w[i] = 'D';
+      }
+      addTile(state, s.q, s.r, w, 'r', { dream: true, dreamOf: s.tag });
       state.stats.dreams = (state.stats.dreams || 0) + 1;
       if (state.stats.dreams === 1) pushEvent(state, ev, 'dream', 'The data centres have started to dream. If the land believes a dream, it comes true.', { k: s.k });
       continue;
@@ -665,6 +671,7 @@ function rules(state, C, ev) {
 
   // dreaming: every DREAM_EVERY steps a cooled data centre queues a rumor on one of its open edges,
   // made of the hamlet, field, jungle and sea wedges it touches. It keeps at most DREAM_MAX dreams out at once.
+  // The sides facing a data centre are laid as data centre (commitPending), so a dream that comes true grows the machine.
   const planned = new Set(state.spawns.map(s => s.k)), dreamsOut = {};
   if (CFG.DREAM_EVERY > 0) {
     for (const k in state.map) { const t = state.map[k]; if (t.kind === 'r' && t.dreamOf) dreamsOut[t.dreamOf] = (dreamsOut[t.dreamOf] || 0) + 1; }

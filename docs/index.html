@@ -588,7 +588,13 @@ function commitPending(state, ev) {
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
     if (s.dream) {
-      addTile(state, s.q, s.r, s.w, 'r', { dream: true, dreamOf: s.tag });
+      // the machine believes its own dream: every side of it that faces a data centre is data centre
+      const w = s.w.slice();
+      for (let i = 0; i < 6; i++) {
+        const nb = state.map[key(s.q + DIRS[i][0], s.r + DIRS[i][1])];
+        if (nb && nb.kind !== 'r' && nb.w[(i + 3) % 6] === 'D') w[i] = 'D';
+      }
+      addTile(state, s.q, s.r, w, 'r', { dream: true, dreamOf: s.tag });
       state.stats.dreams = (state.stats.dreams || 0) + 1;
       if (state.stats.dreams === 1) pushEvent(state, ev, 'dream', 'The data centres have started to dream. If the land believes a dream, it comes true.', { k: s.k });
       continue;
@@ -882,6 +888,7 @@ function rules(state, C, ev) {
 
   // dreaming: every DREAM_EVERY steps a cooled data centre queues a rumor on one of its open edges,
   // made of the hamlet, field, jungle and sea wedges it touches. It keeps at most DREAM_MAX dreams out at once.
+  // The sides facing a data centre are laid as data centre (commitPending), so a dream that comes true grows the machine.
   const planned = new Set(state.spawns.map(s => s.k)), dreamsOut = {};
   if (CFG.DREAM_EVERY > 0) {
     for (const k in state.map) { const t = state.map[k]; if (t.kind === 'r' && t.dreamOf) dreamsOut[t.dreamOf] = (dreamsOut[t.dreamOf] || 0) + 1; }
@@ -1661,7 +1668,7 @@ function openInspector(tl, wi) {
   if (tl.kind === 'r') {
     let ok = 0;
     for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
-    lines += `<p>${tl.dream ? 'A data centre dreamed this. ' : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
+    lines += `<p>${tl.dream ? (tl.w.includes('D') ? 'A data centre dreamed this. The sides touching the machine are data centre, so they already agree. ' : 'A data centre dreamed this. ') : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
   }
   if (L >= 1) {
     const phrase = tl.w.join('');
@@ -1767,7 +1774,7 @@ function openInfo() {
         <li>At night the fields are spent. Once a town builds itself after nightfall, data centres take the fields' place among the tiles you get.</li>
         <li>A data centre needs one sea wedge next to it for every ${S.CFG.COOL_K} of its wedges to stay cool. A hot one blinks red, and its most exposed wedge falls to meadow after ${S.CFG.DECAY_T} hot placements.</li>
         <li>A hungry hamlet wedge beside a data centre becomes part of it. A nameless data centre that takes in part of a named town takes its name.</li>
-        <li>A cool data centre dreams: every ${S.CFG.DREAM_EVERY} placements it lays a dream on one of its edges, made from the land it touches, with up to ${S.CFG.DREAM_MAX} out at a time. A dream comes true once ${S.CFG.RUMOR_NEED} neighbours agree with it, and fades after ${S.CFG.RUMOR_LIFE} placements otherwise.</li>
+        <li>A cool data centre dreams: every ${S.CFG.DREAM_EVERY} placements it lays a dream on one of its edges, made from the land it touches, with up to ${S.CFG.DREAM_MAX} out at a time. The sides touching the machine are data centre, so the machine believes its own dreams. A dream comes true once ${S.CFG.RUMOR_NEED} neighbours agree with it, and fades after ${S.CFG.RUMOR_LIFE} placements otherwise.</li>
         <li>A whole data-centre tile is zone 6, so beside a whole hamlet tile it opens a Warp current and speeds the town up.</li>
       </ul>
     </details>` : ''}
