@@ -452,35 +452,48 @@ function isAwake(state, g, G, surge) {
 function tagAndTier(state, C, ev) {
   const turn = state.turn;
   for (const T of LAND) {
-    for (const g of C.byType[T].list) {
-      let best = 0, bestTier = -99, bestNamed = false;
+    const list = C.byType[T].list;
+    // the group records each cluster's wedges carry, best first: named, then higher tier, then older
+    const cands = list.map(g => {
       const seen = [];
       for (const x of g.w) {
         const tg = C.tiles[(x / 6) | 0].tg[x % 6];
         if (!tg || seen.includes(tg)) continue;
-        seen.push(tg);
         const G = state.groups[tg];
-        if (!G || G.T !== T) continue;
-        const named = !!G.name;
-        if (named > bestNamed || (named === bestNamed && (G.tier > bestTier || (G.tier === bestTier && tg < best)))) { best = tg; bestTier = G.tier; bestNamed = named; }
+        if (G && G.T === T) seen.push(tg);
       }
-      if (!best || !state.groups[best]) { best = state.nextTag++; state.groups[best] = { T, tier: -1, born: turn }; }
+      return seen.sort((a, b) => (!!state.groups[b].name - !!state.groups[a].name) || (state.groups[b].tier - state.groups[a].tier) || (a - b));
+    });
+    // a town or data centre split in pieces: the largest piece keeps the record, and the others get their own
+    // (fields, jungle and sea share one record between pieces, so their tier rewards can't be earned twice)
+    const split = T === 'H' || T === 'D', kept = new Array(list.length).fill(0), claimed = new Set();
+    const order = list.map((g, i) => i);
+    if (split) order.sort((a, b) => list[b].size - list[a].size || a - b);
+    for (const i of order) {
+      const tg = split ? cands[i].find(t => !claimed.has(t)) : cands[i][0];
+      if (tg) { kept[i] = tg; claimed.add(tg); }
+    }
+    list.forEach((g, i) => {
+      let best = kept[i];
+      if (!best) {
+        best = state.nextTag++;
+        state.groups[best] = split && cands[i].length ? splitOff(state, state.groups[cands[i][0]], g, C, ev) : { T, tier: -1, born: turn };
+      }
       const G = state.groups[best];
       for (const x of g.w) C.tiles[(x / 6) | 0].tg[x % 6] = best;
-      // absorbed groups
-      for (const tg of seen) {
-        if (tg === best) continue;
+      // absorbed groups: records in this cluster that no cluster kept
+      for (const tg of cands[i]) {
+        if (tg === best || claimed.has(tg)) continue;
         const O = state.groups[tg];
-        if (O && O.T === T) {
-          if (T === 'H' && O.name && G.name) pushEvent(state, ev, 'merge', `${O.name} and ${G.name} grew into one place. It keeps the name ${G.name}.`);
-          G.tier = Math.max(G.tier, O.tier);
-          delete state.groups[tg];
-        }
+        if (!O) continue;
+        if (T === 'H' && O.name && G.name) pushEvent(state, ev, 'merge', `${O.name} and ${G.name} grew into one place. It keeps the name ${G.name}.`);
+        G.tier = Math.max(G.tier, O.tier);
+        delete state.groups[tg];
       }
       g.tag = best; G.size = g.size; G.seen = turn;
       const tier = tierOf(T, g.size);
       if (tier > G.tier) { for (let k = Math.max(0, G.tier + 1); k <= tier; k++) onTier(state, G, k, g, C, ev); G.tier = tier; }
-    }
+    });
   }
   // a data centre that absorbed part of a named town takes the town's name, if it has none yet
   if (state.absorbedNames && state.absorbedNames.length) {
@@ -503,17 +516,32 @@ function tagAndTier(state, C, ev) {
   }
 }
 
+/* a village names itself; the name is homed if its AQ zone is the zone of the oldest tile it stands on */
+function nameGroup(state, G, g, C, ev, txt) {
+  let oldest = g.w[0];
+  for (const x of g.w) if (C.tiles[(x / 6) | 0].id < C.tiles[(oldest / 6) | 0].id) oldest = x;
+  const home = C.tiles[(oldest / 6) | 0];
+  G.name = genName(state.rng);
+  G.aq = aqOf(G.name); G.zone = dr(G.aq); G.homeZone = home.z; G.homed = G.zone === home.z;
+  pushEvent(state, ev, 'village', txt(G.name) + (state.level >= 2 ? ` AQ ${G.aq} → zone ${G.zone}.` : ''));
+  if (G.homed && state.level >= 2) pushEvent(state, ev, 'homed', `${G.name}'s name comes home: it plexes to zone ${G.zone}, the zone it was founded on. It will grow faster.`);
+}
+/* the record for a piece cut off from a town or data centre. It starts at the tier its size gives, without that
+   tier's rewards. A piece of a town keeps the town's clock, and a piece of village size names itself. */
+function splitOff(state, P, g, C, ev) {
+  const G = { T: P.T, tier: tierOf(P.T, g.size), born: state.turn };
+  if (P.T === 'D' && P.lastDream != null) G.lastDream = P.lastDream;
+  if (P.T !== 'H') return G;
+  if (G.tier >= 2 && P.townSince != null) G.townSince = P.townSince;
+  if (G.tier >= 1) nameGroup(state, G, g, C, ev, n => P.name ? `Part of ${P.name} broke away and named itself ${n}.` : `A village named itself ${n}.`);
+  return G;
+}
+
 function onTier(state, G, k, g, C, ev) {
   if (k === 0) return;
   if (G.T === 'H') {
     if (k === 1) {
-      let oldest = g.w[0];
-      for (const x of g.w) if (C.tiles[(x / 6) | 0].id < C.tiles[(oldest / 6) | 0].id) oldest = x;
-      const home = C.tiles[(oldest / 6) | 0];
-      G.name = genName(state.rng);
-      G.aq = aqOf(G.name); G.zone = dr(G.aq); G.homeZone = home.z; G.homed = G.zone === home.z;
-      pushEvent(state, ev, 'village', state.level >= 2 ? `A village named itself ${G.name}. AQ ${G.aq} → zone ${G.zone}.` : `A village named itself ${G.name}.`);
-      if (G.homed && state.level >= 2) pushEvent(state, ev, 'homed', `${G.name}'s name comes home: it plexes to zone ${G.zone}, the zone it was founded on. It will grow faster.`);
+      nameGroup(state, G, g, C, ev, n => `A village named itself ${n}.`);
     } else if (k === 2) {
       G.townSince = state.turn;
       state.builders++;
