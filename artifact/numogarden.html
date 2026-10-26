@@ -1229,7 +1229,8 @@ const SQ3 = Math.sqrt(3);
 const CORN = [0, 1, 2, 3, 4, 5].map(i => [Math.cos(Math.PI / 3 * i), Math.sin(Math.PI / 3 * i)]);
 const EDGE = [0, 1, 2, 3, 4, 5].map(i => [Math.cos(Math.PI / 6 + Math.PI / 3 * i) * SQ3 / 2, Math.sin(Math.PI / 6 + Math.PI / 3 * i) * SQ3 / 2]);
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const COL = { H: '#EFD3AF', F: '#E8D57A', J: '#4E9B6A', S: '#7DC3D9', D: '#4A5470', M: '#C4DCAA', X: '#F2D3E6' };
+// hamlets a light cream and fields a deeper wheat gold, so a town and the field that feeds it read apart, at night too
+const COL = { H: '#F2D9BE', F: '#D6B03A', J: '#4E9B6A', S: '#7DC3D9', D: '#4A5470', M: '#C4DCAA', X: '#F2D3E6' };
 const REGION_COL = { tc: '#9A7A00', warp: '#6E4FD0', plex: '#C23B5A' };
 const REGION_NAME = { tc: 'Time-Circuit', warp: 'Warp', plex: 'Plex' };
 const TERRAIN = { H: 'Hamlet', F: 'Field', J: 'Jungle', S: 'Sea', D: 'Data centre', M: 'Meadow', X: 'Plex' };
@@ -1880,7 +1881,7 @@ function drawHamlet(tl, i, inf, t, L, nightPass) {
 }
 function drawField(tl, i, L) {
   const A = CORN[i], B = CORN[(i + 1) % 6];
-  ctx.strokeStyle = 'rgba(150,122,34,.55)'; ctx.lineWidth = 0.032;
+  ctx.strokeStyle = 'rgba(112,84,16,.6)'; ctx.lineWidth = 0.032; // furrows dark enough to read on the deeper gold
   if (L >= 2) ctx.setLineDash([0.055, 0.04]);
   for (const f of [0.42, 0.62, 0.82]) {
     const a = [A[0] * f, A[1] * f], b = [B[0] * f, B[1] * f];
