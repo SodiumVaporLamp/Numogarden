@@ -12,6 +12,7 @@ const LANDS = ['H', 'F', 'J', 'S', 'D', 'M'];
 function run(seed) {
   const state = S.newGame(seed);
   let errors = 0, firstErr = null, night = null;
+  const ghosts = { sum: 0, steps: 0, max: 0 }; // dream ghosts on the map once data centres have arrived
   for (let t = 0; t < TURNS; t++) {
     try {
       while (state.choices > 0) S.choose(state, S.rint(state.rng, 2) ? 'x' : 'r');
@@ -19,13 +20,17 @@ function run(seed) {
       if (!res.ok) throw new Error('placement refused: ' + res.why);
       for (const k in state.map) if (state.map[k].w.some(x => !x) || Number.isNaN(state.map[k].z)) throw new Error('bad tile ' + k);
       if (night == null && state.level >= 4) night = state.turn;
+      if (state.dcSince != null) {
+        let n = 0; for (const k in state.map) if (state.map[k].kind === 'r' && state.map[k].dream) n++;
+        ghosts.sum += n; ghosts.steps++; ghosts.max = Math.max(ghosts.max, n);
+      }
     } catch (e) { errors++; if (!firstErr) firstErr = e.stack; break; }
   }
   const sh = S.shares(state), v = S.view(state);
   // a town survives as itself (12+ hamlet wedges) or as a data centre that took a town's name
   const kept = v.labels.filter(l => l.size >= S.CFG.TIERS.H[2]).length + (v.dlabels || []).filter(l => l.name).length;
   const C = S.clusters(state), D = C.byType.D ? C.byType.D.list : [];
-  return { seed, errors, firstErr, night, sh, kept, st: state.stats, dCount: D.length, dMax: Math.max(0, ...D.map(g => g.size)) };
+  return { seed, errors, firstErr, night, sh, kept, ghosts, st: state.stats, dCount: D.length, dMax: Math.max(0, ...D.map(g => g.size)) };
 }
 
 function median(a) { const s = a.slice().sort((x, y) => x - y); const n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; }
@@ -45,6 +50,7 @@ console.log(`data centres at the end (median): clusters ${median(R.map(r => r.dC
 if (R.some(r => r.st.dcSteps)) console.log(`cooled on ${pct(R.reduce((a, r) => a + (r.st.dcCooled || 0), 0) / Math.max(1, R.reduce((a, r) => a + (r.st.dcSteps || 0), 0)))} of data-centre cluster-steps`);
 if (R.some(r => r.st.absorbed)) console.log(`hamlet wedges absorbed per run (median): ${stat('absorbed')}`);
 if (R.some(r => r.st.dreams)) console.log(`dreams per run (median): laid ${stat('dreams')}, came true ${stat('dreamsReal')}`);
+if (R.some(r => r.ghosts.steps)) console.log(`dream ghosts on the map once data centres arrive: mean ${(R.reduce((a, r) => a + r.ghosts.sum, 0) / Math.max(1, R.reduce((a, r) => a + r.ghosts.steps, 0))).toFixed(1)}, max ${Math.max(...R.map(r => r.ghosts.max))}`);
 console.log(`towns kept (a 12+ town or a data centre with a town's name) in ${R.filter(r => r.kept >= 1).length}/${RUNS} runs`);
 const errs = R.reduce((a, r) => a + r.errors, 0);
 console.log(`errors: ${errs}${errs ? '\n' + R.find(r => r.firstErr).firstErr : ''}`);

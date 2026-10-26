@@ -15,7 +15,8 @@ const CFG = {
   NIGHT_WEIGHTS: { H: 0.26, D: 0.26, J: 0.28, S: 0.20 }, // at night the corpus is spent: data centres take the fields' place
   DC_AFTER_WAKE: true,  // ... but only once a town has built itself since nightfall
   COOL_K: 6,            // data-centre wedges one sea contact can cool
-  DREAM_EVERY: 6,       // a cooled data centre lays a dream (a rumor tile) on an open edge this often
+  DREAM_EVERY: 6,       // a cooled data centre lays a dream (a rumor tile) on an open edge this often,
+  DREAM_MAX: 2,         //   with at most this many of its dreams out at once
   CRIT: 24,             // hamlet wedges for a town to start building itself (critical mass)
   MATURE: 40,           // steps a place must have been a town before it can wake up
   FLUSH: 2,             // supply multiple at which a town wakes below critical mass (0 = off)
@@ -369,7 +370,7 @@ function commitPending(state, ev) {
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
     if (s.dream) {
-      addTile(state, s.q, s.r, s.w, 'r', { dream: true });
+      addTile(state, s.q, s.r, s.w, 'r', { dream: true, dreamOf: s.tag });
       state.stats.dreams = (state.stats.dreams || 0) + 1;
       if (state.stats.dreams === 1) pushEvent(state, ev, 'dream', 'The data centres have started to dream. If the land believes a dream, it comes true.', { k: s.k });
       continue;
@@ -653,13 +654,17 @@ function rules(state, C, ev) {
   }
 
   // dreaming: every DREAM_EVERY steps a cooled data centre queues a rumor on one of its open edges,
-  // made of the hamlet, field, jungle and sea wedges it touches
-  const planned = new Set(state.spawns.map(s => s.k));
+  // made of the hamlet, field, jungle and sea wedges it touches. It keeps at most DREAM_MAX dreams out at once.
+  const planned = new Set(state.spawns.map(s => s.k)), dreamsOut = {};
+  if (CFG.DREAM_EVERY > 0) {
+    for (const k in state.map) { const t = state.map[k]; if (t.kind === 'r' && t.dreamOf) dreamsOut[t.dreamOf] = (dreamsOut[t.dreamOf] || 0) + 1; }
+    for (const s of state.spawns) if (s.dream) dreamsOut[s.tag] = (dreamsOut[s.tag] || 0) + 1;
+  }
   if (CFG.DREAM_EVERY > 0) for (const g of C.byType.D.list) {
     const G = state.groups[g.tag];
     if (!g.cooled || !G) continue;
     if (G.lastDream == null) G.lastDream = state.turn;
-    if (state.turn - G.lastDream < CFG.DREAM_EVERY) continue;
+    if (state.turn - G.lastDream < CFG.DREAM_EVERY || (dreamsOut[g.tag] || 0) >= CFG.DREAM_MAX) continue;
     const cells = [], touch = { H: 0, F: 0, J: 0, S: 0 }, seen = new Set();
     for (const x of g.w) {
       for (const y of adjW(C, x)) { const c = wt(C, y); if (c in touch && !seen.has(y)) { seen.add(y); touch[c]++; } }
