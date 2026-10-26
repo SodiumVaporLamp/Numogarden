@@ -436,6 +436,18 @@ function setD(C, x, v) { C.tiles[(x / 6) | 0].d[x % 6] = v; }
    (a sub-linear version let a seaside city reach 75% of the map in every run) */
 function needFor(size) { return Math.ceil(size / CFG.SUPPLY_K); }
 function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; i < TT.length; i++) if (size >= TT[i]) k = i; return k; }
+/* a town wakes once it has been a town for MATURE steps (half that in a Surge) and is at critical mass,
+   or still a town after once being a city, or very well fed; the page asks the same question */
+function matureIn(state, G, surge) {
+  if (!G || G.townSince == null) return null;
+  return Math.max(0, (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE) - (state.turn - G.townSince));
+}
+function isAwake(state, g, G, surge) {
+  const mature = matureIn(state, G, surge) === 0;
+  const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
+  const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
+  return mature && (big || flush);
+}
 
 function tagAndTier(state, C, ev) {
   const turn = state.turn;
@@ -724,10 +736,7 @@ function rules(state, C, ev) {
     let surge = false, warp = false;
     if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
     // a town that has ever reached critical mass stays awake while it is still a town
-    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE);
-    const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
-    const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
-    const awake = mature && (big || flush);
+    const awake = isAwake(state, g, G, surge);
     if (!awake || !g.fed) continue;
     if (needFor(g.size + 1) > g.supply) continue;
     const city = g.size >= CFG.CITY, over = Math.max(0, g.size - CFG.CRIT);
@@ -881,10 +890,11 @@ function currentFx(state) {
   return fx;
 }
 
-/* clusters for the renderer: per wedge cluster size, tier and group tag, plus town labels */
+/* clusters for the renderer: per wedge cluster size, tier and group tag, a town's food and whether it is awake,
+   a data centre's cooling, plus town labels. It only reads the state, so the page can call it as often as it likes. */
 function view(state) {
-  const C = clusters(state);
-  const info = {};
+  const C = clusters(state), fx = currentFx(state);
+  const info = {}, whole = {};
   for (const T of LAND) {
     for (const g of C.byType[T].list) {
       const tier = tierOf(T, g.size);
@@ -894,18 +904,30 @@ function view(state) {
       if (T === 'D') { // cooling, for the page: sea contacts against the need
         const sea = new Set(); for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
         cell.cool = sea.size; cell.need = Math.ceil(g.size / CFG.COOL_K);
+      } else if (T === 'H') { // food as the hunger rule counts it, and whether the town is awake and building
+        const sup = new Set(); for (const x of g.w) for (const y of adjW(C, x)) { const c = wt(C, y); if (c === 'F' || c === 'S') sup.add(y); }
+        g.supply = sup.size; g.need = needFor(g.size);
+        let surge = false;
+        if (fx.surge.size) for (const x of g.w) if (fx.surge.has(C.tiles[(x / 6) | 0].id)) { surge = true; break; }
+        cell.supply = g.supply; cell.need = g.need;
+        cell.awake = isAwake(state, g, state.groups[tag], surge);
+        cell.building = cell.awake && needFor(g.size + 1) <= g.supply;
+        cell.matureIn = matureIn(state, state.groups[tag], surge);
       }
+      if (tag) whole[T + tag] = Math.max(whole[T + tag] || 0, g.size);
       for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; (info[t.id] || (info[t.id] = []))[x % 6] = cell; }
-      g.tag = tag; g.tier = tier;
+      g.tag = tag; g.tier = tier; g.cell = cell;
     }
   }
+  // the pieces of a split town or data centre share its record; each knows the size of the largest piece
+  for (const T of LAND) for (const g of C.byType[T].list) g.cell.whole = g.tag ? whole[T + g.tag] : g.size;
   const labels = [];
   for (const g of C.byType.H.list) {
     const G = state.groups[g.tag];
     if (!G || !G.name || g.size < CFG.TIERS.H[1]) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), q: sx / g.size, r: sy / g.size });
+    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), supply: g.supply, need: g.need, q: sx / g.size, r: sy / g.size });
   }
   // data centres that took a town's name; a split data centre keeps its name on its largest piece
   const byName = new Map();
@@ -914,7 +936,7 @@ function view(state) {
     if (!G || !G.name || (byName.has(G.name) && byName.get(G.name).size >= g.size)) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    byName.set(G.name, { name: G.name, aq: G.aq, zone: G.zone, size: g.size, q: sx / g.size, r: sy / g.size });
+    byName.set(G.name, { name: G.name, aq: G.aq, zone: G.zone, size: g.size, cool: g.cell.cool, need: g.cell.need, q: sx / g.size, r: sy / g.size });
   }
   const dlabels = [...byName.values()];
   const seas = C.byType.S.list.map(g => {

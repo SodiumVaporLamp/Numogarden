@@ -118,6 +118,7 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
 .btn.primary .n { background: rgba(255, 255, 255, .18); }
 
 .scrim { position: absolute; inset: 0; z-index: 6; background: rgba(30, 43, 47, .32); display: grid; align-items: end; justify-items: center; }
+.scrim.light { background: rgba(30, 43, 47, .12); } /* the inspector: the board above it stays readable */
 .sheet {
   width: 100%; max-width: 560px; box-sizing: border-box; background: var(--panel); border-radius: 22px 22px 0 0;
   padding-block: 18px 20px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: max(18px, env(safe-area-inset-right, 0px));
@@ -151,6 +152,14 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .row .btn { flex: 1 1 140px; }
 .credit { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+/* the explainer's longer parts fold away, so the chronicle stays a short scroll down */
+.sheet details { border: 1px solid var(--rule); border-radius: 14px; background: #FFFFFF; padding: 0 12px; }
+.sheet details[open] { padding-bottom: 12px; }
+.sheet summary { list-style: none; cursor: pointer; min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 600; font-size: 15px; }
+.sheet summary::-webkit-details-marker { display: none; }
+.sheet summary::after { content: ''; flex: none; width: 7px; height: 7px; margin-right: 4px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-2px) rotate(45deg); }
+.sheet details[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.sheet details ul { gap: 6px; }
 /* a setting is one tappable row: words on the left, a switch on the right */
 .setting { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 14px; text-align: left; border: 1.5px solid var(--rule); background: #FFFFFF; border-radius: 16px; padding: 10px 12px; cursor: pointer; }
 .setting b { display: block; font-size: 15px; font-weight: 600; }
@@ -644,6 +653,18 @@ function setD(C, x, v) { C.tiles[(x / 6) | 0].d[x % 6] = v; }
    (a sub-linear version let a seaside city reach 75% of the map in every run) */
 function needFor(size) { return Math.ceil(size / CFG.SUPPLY_K); }
 function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; i < TT.length; i++) if (size >= TT[i]) k = i; return k; }
+/* a town wakes once it has been a town for MATURE steps (half that in a Surge) and is at critical mass,
+   or still a town after once being a city, or very well fed; the page asks the same question */
+function matureIn(state, G, surge) {
+  if (!G || G.townSince == null) return null;
+  return Math.max(0, (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE) - (state.turn - G.townSince));
+}
+function isAwake(state, g, G, surge) {
+  const mature = matureIn(state, G, surge) === 0;
+  const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
+  const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
+  return mature && (big || flush);
+}
 
 function tagAndTier(state, C, ev) {
   const turn = state.turn;
@@ -932,10 +953,7 @@ function rules(state, C, ev) {
     let surge = false, warp = false;
     if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
     // a town that has ever reached critical mass stays awake while it is still a town
-    const mature = G && G.townSince != null && state.turn - G.townSince >= (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE);
-    const big = g.size >= CFG.CRIT || (G && G.tier >= 3 && g.size >= CFG.TIERS.H[2]);
-    const flush = CFG.FLUSH > 0 && g.size >= CFG.TIERS.H[2] && g.supply >= CFG.FLUSH * g.need; // a well-fed town wakes early
-    const awake = mature && (big || flush);
+    const awake = isAwake(state, g, G, surge);
     if (!awake || !g.fed) continue;
     if (needFor(g.size + 1) > g.supply) continue;
     const city = g.size >= CFG.CITY, over = Math.max(0, g.size - CFG.CRIT);
@@ -1089,10 +1107,11 @@ function currentFx(state) {
   return fx;
 }
 
-/* clusters for the renderer: per wedge cluster size, tier and group tag, plus town labels */
+/* clusters for the renderer: per wedge cluster size, tier and group tag, a town's food and whether it is awake,
+   a data centre's cooling, plus town labels. It only reads the state, so the page can call it as often as it likes. */
 function view(state) {
-  const C = clusters(state);
-  const info = {};
+  const C = clusters(state), fx = currentFx(state);
+  const info = {}, whole = {};
   for (const T of LAND) {
     for (const g of C.byType[T].list) {
       const tier = tierOf(T, g.size);
@@ -1102,18 +1121,30 @@ function view(state) {
       if (T === 'D') { // cooling, for the page: sea contacts against the need
         const sea = new Set(); for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
         cell.cool = sea.size; cell.need = Math.ceil(g.size / CFG.COOL_K);
+      } else if (T === 'H') { // food as the hunger rule counts it, and whether the town is awake and building
+        const sup = new Set(); for (const x of g.w) for (const y of adjW(C, x)) { const c = wt(C, y); if (c === 'F' || c === 'S') sup.add(y); }
+        g.supply = sup.size; g.need = needFor(g.size);
+        let surge = false;
+        if (fx.surge.size) for (const x of g.w) if (fx.surge.has(C.tiles[(x / 6) | 0].id)) { surge = true; break; }
+        cell.supply = g.supply; cell.need = g.need;
+        cell.awake = isAwake(state, g, state.groups[tag], surge);
+        cell.building = cell.awake && needFor(g.size + 1) <= g.supply;
+        cell.matureIn = matureIn(state, state.groups[tag], surge);
       }
+      if (tag) whole[T + tag] = Math.max(whole[T + tag] || 0, g.size);
       for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; (info[t.id] || (info[t.id] = []))[x % 6] = cell; }
-      g.tag = tag; g.tier = tier;
+      g.tag = tag; g.tier = tier; g.cell = cell;
     }
   }
+  // the pieces of a split town or data centre share its record; each knows the size of the largest piece
+  for (const T of LAND) for (const g of C.byType[T].list) g.cell.whole = g.tag ? whole[T + g.tag] : g.size;
   const labels = [];
   for (const g of C.byType.H.list) {
     const G = state.groups[g.tag];
     if (!G || !G.name || g.size < CFG.TIERS.H[1]) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), q: sx / g.size, r: sy / g.size });
+    labels.push({ name: G.name, aq: G.aq, zone: G.zone, homed: G.homed, size: g.size, tier: tierOf('H', g.size), supply: g.supply, need: g.need, q: sx / g.size, r: sy / g.size });
   }
   // data centres that took a town's name; a split data centre keeps its name on its largest piece
   const byName = new Map();
@@ -1122,7 +1153,7 @@ function view(state) {
     if (!G || !G.name || (byName.has(G.name) && byName.get(G.name).size >= g.size)) continue;
     let sx = 0, sy = 0;
     for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
-    byName.set(G.name, { name: G.name, aq: G.aq, zone: G.zone, size: g.size, q: sx / g.size, r: sy / g.size });
+    byName.set(G.name, { name: G.name, aq: G.aq, zone: G.zone, size: g.size, cool: g.cell.cool, need: g.cell.need, q: sx / g.size, r: sy / g.size });
   }
   const dlabels = [...byName.values()];
   const seas = C.byType.S.list.map(g => {
@@ -1184,7 +1215,7 @@ const slotsEl = $('slots'), hintEl = $('hint'), toastsEl = $('toasts'), scrim = 
 let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {};
 let cam = { x: 0, y: 0, s: 46 };
 let W = 0, H = 0, dpr = 1;
-const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0, sheetAt: 0 };
+const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0, sheetAt: 0, focus: null };
 
 /* ---------- geometry ---------- */
 function hexCenter(q, r) { return [1.5 * q, SQ3 * (r + q / 2)]; }
@@ -1227,6 +1258,7 @@ function refresh() {
   idMap = {};
   for (const k in state.map) idMap[state.map[k].id] = state.map[k];
   view = S.view(state);
+  ui.focus = null; // the land has changed, so a tapped town's highlight is stale
   // currents as the rules see them, with the tiles at each end and a light tint over each area
   currents = []; tint = {};
   for (const c of S.activeCurrents(state)) {
@@ -1269,14 +1301,14 @@ function newWorld() {
 
 /* ---------- actions ---------- */
 function selectSlot(s) {
-  ui.sel = { from: s.from, i: s.i };
+  ui.sel = { from: s.from, i: s.i }; ui.focus = null; // back to placing: drop a tapped town's highlight
   if (ui.mode === 'builder') { ui.mode = 'place'; ui.clearKey = null; }
   if (ui.ghost) ui.ghost.k = bestRot(selectedTile(), ui.ghost.q, ui.ghost.r, ui.ghost.k).k;
   computeValid(); renderTray(); updateTools(); updateHint(); ui.dirty = true;
 }
 function rotateGhost() {
   if (!ui.ghost || selectedTile().kind === 'x') return;
-  ui.ghost.k = (ui.ghost.k + 1) % 6;
+  ui.ghost.k = (ui.ghost.k + 1) % 6; ui.focus = null;
   updateTools(); updateHint(); ui.dirty = true;
 }
 function doPlace() {
@@ -1313,7 +1345,7 @@ function doUndo() {
 }
 function toggleMode(m) {
   ui.mode = ui.mode === m ? 'place' : m;
-  ui.clearKey = null; ui.ghost = null;
+  ui.clearKey = null; ui.ghost = null; ui.focus = null;
   computeValid(); updateTools(); updateHint(); ui.dirty = true;
 }
 
@@ -1393,6 +1425,7 @@ function ghostEval() {
 function updateHint() {
   let txt;
   if (ui.mode === 'builder') txt = ui.clearKey ? 'Tap Clear tile to remove it. You can build on the empty spot.' : 'Builder: tap any tile to clear it.';
+  else if (ui.focus) txt = focusHint(ui.focus) + ' Tap the map to clear.'; // until the next tap, the town just inspected
   else if (ui.ghost) {
     const { st, e, opens } = ghostEval();
     if (st.kind === 'r') txt = `A rumor. It becomes real once ${S.CFG.RUMOR_NEED} neighbours agree with its edges.`;
@@ -1427,7 +1460,7 @@ function toast(e) {
 function floater(wx, wy, txt, col) { ui.floaters.push({ wx, wy, txt, col, born: performance.now() }); ui.dirty = true; }
 
 /* ---------- sheets ---------- */
-function openSheet(html) { sheet.innerHTML = html; scrim.hidden = false; ui.sheetAt = performance.now(); const f = sheet.querySelector('button'); if (f) f.focus({ preventScroll: true }); }
+function openSheet(html, light) { sheet.innerHTML = html; scrim.classList.toggle('light', !!light); scrim.hidden = false; ui.sheetAt = performance.now(); const f = sheet.querySelector('button'); if (f) f.focus({ preventScroll: true }); }
 function closeSheet() { scrim.hidden = true; sheet.innerHTML = ''; }
 // a tap on the board opens a sheet on pointerup, and the same tap's click then lands on the new scrim
 scrim.addEventListener('click', e => { if (e.target === scrim && performance.now() - ui.sheetAt > 400) closeSheet(); });
@@ -1457,34 +1490,120 @@ function openGift() {
   $('later').addEventListener('click', closeSheet);
 }
 
-function townOf(tl) {
-  for (let i = 0; i < 6; i++) if (tl.w[i] === 'H' && tl.tg[i] && state.groups[tl.tg[i]] && state.groups[tl.tg[i]].name) return state.groups[tl.tg[i]];
-  return null;
-}
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-/* the data centre a tile belongs to: its size, sea contacts against the need, and the town name it took */
-function dataCentreOf(tl) {
-  const i = tl.w.indexOf('D'); if (i < 0) return null;
-  const inf = (view.info[tl.id] || [])[i]; if (!inf) return null;
-  const G = state.groups[inf.tag];
-  return { size: inf.size, cool: inf.cool, need: inf.need, name: G && G.name };
+function plural(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
+/* the wedges touching wedge i of a tile: its two sides on the same tile and the wedge across the edge */
+function adjOf(tl, i) {
+  const out = [[tl, (i + 1) % 6], [tl, (i + 5) % 6]];
+  const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
+  if (nb && nb.kind !== 'r') out.push([nb, (i + 3) % 6]);
+  return out;
 }
-function openInspector(tl) {
+/* the piece of hamlet or data centre on a tile, as view() counts it, with the group record it belongs to: the one
+   under the tapped wedge if that is the right kind, else the largest. The pieces of a split town share one record,
+   so the size comes from the piece itself. */
+function pieceOn(tl, T, wi) {
+  if (tl.kind === 'r') return null;
+  const inf = view.info[tl.id] || [];
+  let best = null;
+  if (wi != null && tl.w[wi] === T && inf[wi]) best = { cell: inf[wi], i: wi };
+  else for (let i = 0; i < 6; i++) if (tl.w[i] === T && inf[i] && (!best || inf[i].size > best.cell.size)) best = { cell: inf[i], i };
+  if (best) { best.G = state.groups[best.cell.tag] || null; best.name = best.G && best.G.name; best.piece = best.cell.size < best.cell.whole; }
+  return best;
+}
+/* what the map shows for a tapped town or data centre: its wedges, the field and sea wedges that feed it
+   (or the sea that cools it), and its fading wedges. A fading wedge beside a jungle of JCRIT or more can be taken. */
+function focusOf(tl, wi) {
+  const p = (wi != null && tl.w[wi] === 'D' ? pieceOn(tl, 'D', wi) : null) || pieceOn(tl, 'H', wi) || pieceOn(tl, 'D', wi);
+  if (!p) return null;
+  const T = tl.w[p.i], members = new Set(), food = new Set(), fading = new Set(), risk = new Set();
+  for (const k in state.map) {
+    const t = state.map[k], inf = view.info[t.id]; if (!inf) continue;
+    for (let i = 0; i < 6; i++) if (inf[i] === p.cell) members.add(t.id + ':' + i);
+  }
+  const bigJungle = (u, j) => u.w[j] === 'J' && (view.info[u.id] || [])[j] && view.info[u.id][j].size >= S.CFG.JCRIT;
+  for (const id of members) {
+    const [tid, i] = id.split(':').map(Number), t = idMap[tid];
+    for (const [u, j] of adjOf(t, i)) if (u.w[j] === 'S' || (T === 'H' && u.w[j] === 'F')) food.add(u.id + ':' + j);
+    if (t.d[i] > 0) {
+      fading.add(id);
+      if (T === 'H' && adjOf(t, i).some(([u, j]) => bigJungle(u, j))) risk.add(id);
+    }
+  }
+  return Object.assign(p, { T, members, food, fading, risk });
+}
+function foodLine(c) {
+  const has = plural(c.supply, 'field or sea wedge');
+  if (c.size < S.CFG.STARVE_MIN) return `It has ${has} next to it. A hamlet this small gets by on its own.`;
+  return `It has ${has} next to it and needs ${c.need}, so it ${c.supply >= c.need ? 'is fed' : 'is going hungry and fades one wedge at a time'}.`;
+}
+/* why a town is or isn't building itself, by the same test the rules use (isAwake in sim.js) */
+function wakeLine(c, G) {
+  if (c.building) return 'It is awake and building itself.';
+  if (c.awake) return 'It is awake. It builds itself again once it has food to spare.';
+  if (!G || G.townSince == null || c.size < S.CFG.TIERS.H[2]) return '';
+  const twice = S.CFG.FLUSH === 2 ? 'twice' : S.CFG.FLUSH + ' times';
+  const ready = c.size >= S.CFG.CRIT || (G.tier >= 3) || (S.CFG.FLUSH > 0 && c.supply >= S.CFG.FLUSH * c.need);
+  if (c.matureIn > 0) return ready ? `It wakes up after ${plural(c.matureIn, 'more placement')} as a town.`
+    : `After ${plural(c.matureIn, 'more placement')} as a town, it can wake up once it reaches ${S.CFG.CRIT} wedges or has ${twice} the food it needs.`;
+  return `It wakes up at ${S.CFG.CRIT} wedges, or sooner with ${twice} the food it needs.`;
+}
+function focusNote(f) {
+  const n = f.fading.size, r = f.risk.size;
+  if (f.T === 'D') return ((f.food.size ? ' Dots on the map mark the sea that cools it.' : '')
+    + (n ? (n === 1 ? ' The wedge running hot is outlined in red.' : ` The ${n} wedges running hot are outlined in red.`) : '')).trim();
+  let s = f.food.size ? 'Dots on the map mark the fields and sea that feed it.' : '';
+  if (n) s += n === 1 ? ' An outline marks the wedge that is fading.' : ` Outlines mark the ${n} wedges that are fading.`;
+  // a fed town only fades where a Sink current wears it down
+  if (n && (f.cell.supply >= f.cell.need || f.cell.size < S.CFG.STARVE_MIN)) s += n === 1 ? ' A Sink current is wearing it down.' : ' A Sink current is wearing them down.';
+  if (r) s += r === n ? (n === 1 ? ' It borders a big jungle, which can take it.' : ' They border a big jungle, which can take them.')
+    : r === 1 ? ' The red one borders a big jungle, which can take it.' : ` The ${r} red ones border a big jungle, which can take them.`;
+  return s.trim();
+}
+function focusHint(f) {
+  const c = f.cell;
+  if (f.T === 'D') return `${f.name && !f.piece ? f.name + ', a data centre' : 'This data centre'}: cooling ${c.cool} of ${c.need}${c.cool < c.need ? ', so it is running hot' : ''}.${f.food.size ? ' Dots mark the sea that cools it.' : ''}`;
+  const who = f.name ? (f.piece ? 'This piece of ' + f.name : f.name) : 'This ' + TIER_H[Math.max(0, c.tier)];
+  const dots = f.food.size ? ' Dots mark its fields and sea.' : '';
+  if (c.size < S.CFG.STARVE_MIN) return `${who} is small enough to get by on its own.${dots}`;
+  return `${who}: food ${c.supply} of ${c.need}${c.supply < c.need ? ', so it is going hungry' : ''}.${dots}`;
+}
+/* what a current has to act on right now, so a quiet one doesn't look broken */
+function currentNow(name, ids) {
+  const tiles = [...ids].map(id => idMap[id]).filter(Boolean);
+  const any = fn => tiles.some(t => t.w.some((w, i) => fn(t, w, i)));
+  if (name === 'Plex') return S.shares(state).X >= S.CFG.PLEX_CAP ? ' Wild land is plentiful right now, so it is resting.' : '';
+  if (name === 'Warp') return any((t, w, i) => t.d[i] > 0 || (w === 'H' && ((view.info[t.id] || [])[i] || {}).building)) ? '' : ' Nothing near it is fading or building right now, so it has nothing to speed up.';
+  if (name === 'Surge') return any((t, w) => w === 'H') ? '' : ' No hamlets are in its reach right now.';
+  if (name === 'Sink') return any((t, w) => w === 'H' || w === 'F') ? '' : ' No hamlets or fields are in its reach right now.';
+  return '';
+}
+function openInspector(tl, wi) {
   const L = state.level, z = tl.z, reg = S.region(z);
   const counts = {}; for (const c of tl.w) counts[c] = (counts[c] || 0) + 1;
   const chips = Object.keys(counts).map(c => `<span class="chip"><i class="dot" style="background:${COL[c]}"></i>${TERRAIN[c]} ×${counts[c]}</span>`).join('');
-  const town = townOf(tl), dc = tl.kind === 'r' ? null : dataCentreOf(tl);
-  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? (tl.dream ? 'A dream' : 'A rumor') : town ? esc(town.name) : dc && dc.name ? esc(dc.name) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
-  let lines = '';
+  const town = pieceOn(tl, 'H', wi), dc = pieceOn(tl, 'D', wi), f = focusOf(tl, wi), dcFirst = f && f.T === 'D';
+  ui.focus = f; ui.dirty = true; updateHint();
+  const named = dcFirst ? dc.name : (town && town.name) || (dc && dc.name);
+  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? (tl.dream ? 'A dream' : 'A rumor') : named ? esc(named) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
+  let townLines = '', dcLines = '';
   if (town) {
-    const tier = S.tierOf('H', town.size || 0);
-    lines += `<p>A ${TIER_H[Math.max(0, tier)]} of ${town.size} hamlet wedges${town.building ? ' that builds itself' : ''}.</p>`;
-    if (L >= 2 && town.aq != null) lines += `<p class="readout">AQ ${esc(town.name)} = ${town.aq} → zone ${town.zone}${town.homed ? ' · the name comes home' : ''}</p>`;
+    const c = town.cell, G = town.G;
+    townLines += town.piece && town.name ? `<p>A piece of ${esc(town.name)}, cut off from the rest: ${plural(c.size, 'hamlet wedge')}. The ${TIER_H[Math.max(0, S.tierOf('H', c.whole))]} itself has ${c.whole}.</p>`
+      : `<p>A ${TIER_H[Math.max(0, c.tier)]} of ${plural(c.size, 'hamlet wedge')}.</p>`;
+    townLines += `<p>${foodLine(c)}</p>`;
+    const wake = wakeLine(c, G); if (wake) townLines += `<p>${wake}</p>`;
+    if (f && f.T === 'H' && focusNote(f)) townLines += `<p class="note">${focusNote(f)}</p>`;
+    if (L >= 2 && G && G.name && G.aq != null) townLines += `<p class="readout">AQ ${esc(G.name)} = ${G.aq} → zone ${G.zone}${G.homed ? ' · the name comes home' : ''}</p>`;
   }
   if (dc) {
-    const sea = n => n + ' sea wedge' + (n === 1 ? '' : 's');
-    lines += `<p>A data centre of ${dc.size} wedges. ${dc.cool >= dc.need ? `It is cooled by ${sea(dc.cool)} and needs ${dc.need}.` : `It needs ${sea(dc.need)} to stay cool and has ${dc.cool}, so it is running hot.`}${dc.name ? ' It took its name from a town it absorbed.' : ''}</p>`;
+    const c = dc.cell, sea = n => plural(n, 'sea wedge');
+    dcLines += `<p>${dc.piece && dc.name ? `A piece of the ${esc(dc.name)} data centre: ${plural(c.size, 'wedge')}.` : `A data centre of ${plural(c.size, 'wedge')}.`} `
+      + (c.cool >= c.need ? `It is cooled by ${sea(c.cool)} and needs ${c.need}.` : `It needs ${sea(c.need)} next to it to stay cool and has ${c.cool}, so it is running hot. Its most exposed wedge falls to meadow after ${S.CFG.DECAY_T} hot placements.`)
+      + `${dc.name && !dc.piece ? ' It took its name from a town it absorbed.' : ''}</p>`;
+    if (f && f.T === 'D' && focusNote(f)) dcLines += `<p class="note">${focusNote(f)}</p>`;
   }
+  let lines = dcFirst ? dcLines + townLines : townLines + dcLines;
   if (tl.kind === 'r') {
     let ok = 0;
     for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
@@ -1499,25 +1618,24 @@ function openInspector(tl) {
     const byName = new Map();
     for (const x of currents) {
       if (!x.area.has(tl.id)) continue;
-      const g = byName.get(x.c.name) || { x, n: 0, end: false, live: false };
+      const g = byName.get(x.c.name) || { x, n: 0, end: false, live: false, area: new Set() };
       g.n++;
       if (x.c.a === tl.id || x.c.b === tl.id) g.end = true;
       if (!x.c.gone) g.live = true;
+      for (const id of x.area) g.area.add(id);
       byName.set(x.c.name, g);
     }
     for (const [name, g] of byName) {
       const c = g.x.c;
       lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>`
-        + `<p class="note">${CURRENT_TXT[name]}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}</p>`;
+        + `<p class="note">${CURRENT_TXT[name]}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}${currentNow(name, g.area)}</p>`;
     }
   }
-  const decaying = tl.d.some((d, i) => d > 0 && (tl.w[i] === 'H' || tl.w[i] === 'F'));
-  if (decaying) lines += `<p class="note">Vines are growing here. The hamlets or fields on this tile are going untended.</p>`;
-  if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'D')) lines += `<p class="note">Part of this data centre is running hot.</p>`;
+  if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'F')) lines += `<p class="note">Vines are growing on the fields here. They are going untended.</p>`;
   lines += `<p class="note">${tl.kind === 'r' ? (tl.dream ? 'Dreamed' : 'Placed') + ' at placement ' + tl.born + '.'
     : tl.dream ? 'A data centre dreamed this, and it came true at placement ' + tl.real + '.'
     : tl.auto ? 'This tile was laid by a city, on its own, at placement ' + tl.born + '.' : 'Placed at placement ' + tl.born + '.'}</p>`;
-  openSheet(`<h2>${title}</h2><div class="chips">${chips}</div>${lines}<button type="button" class="btn sheet-close" id="closeS">Close</button>`);
+  openSheet(`<h2>${title}</h2><div class="chips">${chips}</div>${lines}<button type="button" class="btn sheet-close" id="closeS">Close</button>`, true);
   $('closeS').addEventListener('click', closeSheet);
 }
 function openLemur(l) {
@@ -1552,15 +1670,65 @@ function openInfo() {
       <span><b id="cleanLbl">Show clean fits</b><span class="note" id="cleanNote">Teal spots show where the selected tile fits cleanly.</span></span>
       <span class="switch" aria-hidden="true"></span>
     </button>
-    <h3>What the land does on its own</h3>
-    <ul>
-      <li>Hamlets need fields or sea beside them. Big towns need more. Hungry towns fade into meadow, and jungle grows over meadow and untended fields.</li>
-      <li>A town that has been a town for a while and reaches critical mass (${S.CFG.CRIT} hamlet wedges, or fewer if it is very well fed or has stayed the same size for a long time) builds itself into the land around it. A metropolis lays whole tiles.</li>
-      <li>Glowing wedges will change on your next placement.</li>
-      ${state.level >= 1 ? '<li>Two neighbouring tiles whose zones sum to nine open a current, and it changes the land around them. Sink wears it down, Hold keeps it as it is, Surge wakes towns sooner, Warp runs time twice as fast and Plex turns it wild. Tap a tile to see its currents.</li>' : ''}
-      ${state.dcSince != null ? '<li>At night the fields are spent and data centres arrive. They need sea next to them to stay cool, they take in hungry towns beside them, and they dream tiles onto their edges. A dream comes true once 3 neighbours agree with it.</li>' : ''}
-      <li>Lakes give ferries, which let you start an island up to 3 hexes away. Towns and cities give builders, which clear a tile.</li>
-    </ul>
+    <h3>How the land works</h3>
+    <p class="note">The land changes one step each time you place a tile, never while you are away.</p>
+    <details>
+      <summary>The land</summary>
+      <ul>
+        <li><b>Hamlets</b> need food: one field or sea wedge next to them for every ${S.CFG.SUPPLY_K} hamlet wedges. A town without enough goes hungry, and its edge fades into meadow one wedge at a time. Groups of under ${S.CFG.STARVE_MIN} get by on their own.</li>
+        <li><b>Fields</b> feed the hamlets next to them. A field with no hamlet beside it goes fallow next to a jungle of ${S.CFG.FALLOW_J} or more.</li>
+        <li><b>Sea</b> feeds hamlets too, and towns never build over it. Lakes give ferries, and two towns on one sea trade and grow faster.</li>
+        <li><b>Jungle</b> is the Outside. It grows over meadow next to it, and a jungle of ${S.CFG.JCRIT} or more takes hungry hamlets and untended fields.</li>
+        <li><b>Meadow</b> is the land in between. It matches fields and jungle, and towns build on it first.</li>
+        <li><b>Plex</b> tiles are wild. They match every edge and join every group around them without adding to its size.</li>
+        ${state.level >= 4 ? '<li><b>Data centres</b> arrive at night. See Night below.</li>' : ''}
+      </ul>
+    </details>
+    <details>
+      <summary>Towns</summary>
+      <ul>
+        <li>Hamlets grow by size: ${S.CFG.TIERS.H[1]} wedges make a village, which names itself, ${S.CFG.TIERS.H[2]} a town (+1 builder), ${S.CFG.TIERS.H[3]} a city (+1 builder) and ${S.CFG.TIERS.H[4]} a metropolis (+2 builders). Builders clear a tile.</li>
+        <li>A town wakes up once it has been a town for ${S.CFG.MATURE} placements and either reaches critical mass, ${S.CFG.CRIT} wedges, or has twice the food it needs. Once it has been a city, it stays awake for as long as it is a town. Awake, it builds itself into the land around it whenever it has food to spare, and eating its own fields can make it go hungry.</li>
+        <li>A fed town of ${S.CFG.GROK_MIN} or more that stays about the same size for ${S.CFG.GROK_T} placements groks: it counts as a city from then on, wakes like one, and earns a builder.</li>
+        <li>A city holds off the jungle, which takes its fading wedges a third as fast. That stops when the city has under half the food it needs, when the jungle is ${S.CFG.TIERS.J[2]} or more, or inside a Sink current. Cities also build faster as they grow.</li>
+        <li>A metropolis lays a whole tile of its own every ${S.CFG.METRO_EVERY} placements while it is fed.</li>
+        <li>A town's label shows its food: the field and sea wedges next to it, against what it needs. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
+      </ul>
+    </details>
+    ${state.level >= 1 ? `<details>
+      <summary>Currents</summary>
+      <ul>
+        <li>Two neighbouring tiles whose zones sum to nine open a current, named for the difference of their zones. It acts on both tiles and every tile touching them, and it keeps flowing for ${S.CFG.CURRENT_LINGER} placements after the zones stop adding up.</li>
+        <li><b>Plex</b> 9::0, carried by Uttunul. ${CURRENT_TXT.Plex}</li>
+        <li><b>Surge</b> 8::1, carried by Murrumur. Towns that touch it build faster and wake up in half the time.</li>
+        <li><b>Hold</b> 7::2, carried by Oddubb. ${CURRENT_TXT.Hold} The pair itself can still change.</li>
+        <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
+        <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
+        <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
+      </ul>
+    </details>` : ''}
+    ${state.level >= 4 ? `<details>
+      <summary>Night</summary>
+      <ul>
+        <li>At night the fields are spent. Once a town builds itself after nightfall, data centres take the fields' place among the tiles you get.</li>
+        <li>A data centre needs one sea wedge next to it for every ${S.CFG.COOL_K} of its wedges to stay cool. A hot one blinks red, and its most exposed wedge falls to meadow after ${S.CFG.DECAY_T} hot placements.</li>
+        <li>A hungry hamlet wedge beside a data centre becomes part of it. A nameless data centre that takes in part of a named town takes its name.</li>
+        <li>A cool data centre dreams: every ${S.CFG.DREAM_EVERY} placements it lays a dream on one of its edges, made from the land it touches. A dream comes true once ${S.CFG.RUMOR_NEED} neighbours agree with it, and fades after ${S.CFG.RUMOR_LIFE} placements otherwise.</li>
+        <li>A whole data-centre tile is zone 6, so beside a whole hamlet tile it opens a Warp current and speeds the town up.</li>
+      </ul>
+    </details>` : ''}
+    <details>
+      <summary>What you see</summary>
+      <ul>
+        <li>Glowing wedges change on your next placement. A dashed tile is about to be laid${state.level >= 4 ? ': crimson by a metropolis, violet for a dream' : ' by a metropolis'}.</li>
+        <li>Vines grow on hamlets and fields that are fading.</li>
+        <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null ? ' Dreams are ghosts with drifting lines.' : ''}</li>
+        ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
+        ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
+        <li>Labels show a town's food, or a data centre's cooling, as what it has against what it needs.</li>
+        <li>Tap a town or data centre to light it up. Dots mark what feeds or cools it, and outlines mark its fading wedges. Red ones border a big jungle that can take them.</li>
+      </ul>
+    </details>
     <h3>Weirdness</h3>
     <ul>
       <li>${L[1]}★: tiles show their zone. Zones that sum to nine across an edge attract visitors from the Pandemonium Matrix and open currents.</li>
@@ -1705,8 +1873,21 @@ function drawVines(tl, i, d) {
     ctx.beginPath(); ctx.arc(x, y, 0.05, 0, Math.PI * 1.4); ctx.stroke();
   }
 }
-/* a data-centre wedge: a dark slab with a row of lights that ripple, steam where it touches sea,
-   and a blinking red light while its cluster runs hot. At night only the lights are drawn again, glowing. */
+/* heat rising off a data-centre wedge that is running hot and will fall to meadow; stronger as it gets closer */
+function drawHeat(tl, i, d, t) {
+  const [x, y] = wpt(i, 0.4, 0.4), tt = RM ? 0 : t;
+  ctx.strokeStyle = `rgba(255,112,84,${Math.min(0.95, 0.45 + d * 0.18)})`; ctx.lineWidth = 0.024; ctx.lineCap = 'round';
+  for (let k = 0; k < 3; k++) {
+    const x0 = x + (k - 1) * 0.085, ph = tt * 5 + k * 2.1 + tl.id;
+    ctx.beginPath();
+    for (let s = 0; s <= 6; s++) { const yy = y - 0.085 - s * 0.03, xx = x0 + Math.sin(ph + s * 1.25) * 0.016; s ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+}
+/* a data-centre wedge: a dark slab with a row of lights that ripple, and steam where it touches sea.
+   While its cluster runs hot, every light turns red and blinks in step with the rest of the cluster, and the slab glows red.
+   At night only the lights are drawn again, glowing. */
 function seaBeside(tl, i) {
   if (tl.w[(i + 1) % 6] === 'S' || tl.w[(i + 5) % 6] === 'S') return true;
   const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
@@ -1715,6 +1896,12 @@ function seaBeside(tl, i) {
 function drawDataCentre(tl, i, inf, t, nightPass) {
   const base = ctx.globalAlpha, seed = hh(tl.id, i * 31), hot = inf && inf.cool < inf.need, tt = RM ? 0 : t;
   const [x, y] = wpt(i, 0.4, 0.4), bw = 0.3, bh = 0.13;
+  const on = RM || Math.sin(tt * 5) > 0; // one shared beat, so a hot cluster reads as one alarm
+  if (hot) {
+    ctx.globalAlpha = base * (nightPass ? (on ? 0.5 : 0.2) : (on ? 0.7 : 0.35)); ctx.fillStyle = '#FF5A6E';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - bw / 2 - 0.04, y - bh / 2 - 0.04, bw + 0.08, bh + 0.08, 0.05) : ctx.rect(x - bw / 2 - 0.04, y - bh / 2 - 0.04, bw + 0.08, bh + 0.08); ctx.fill();
+    ctx.globalAlpha = base;
+  }
   if (!nightPass) {
     ctx.fillStyle = '#2B3142'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
     ctx.fillStyle = '#5C6680'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, 0.02);
@@ -1725,10 +1912,9 @@ function drawDataCentre(tl, i, inf, t, nightPass) {
     }
   }
   for (let k = 0; k < 4; k++) {
-    const red = hot && k === 3;
-    ctx.globalAlpha = base * (red ? (RM || Math.sin(tt * 6 + seed * 20) > 0 ? 1 : 0.3) : RM ? 0.9 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * 3 - k * 0.8 + seed * 9)));
-    ctx.fillStyle = red ? '#FF5A6E' : nightPass ? '#B8FFF6' : '#7FE6DA';
-    ctx.beginPath(); ctx.arc(x - bw * 0.33 + k * bw * 0.22, y + 0.015, nightPass ? 0.018 : 0.013, 0, 7); ctx.fill();
+    ctx.globalAlpha = base * (hot ? (on ? 1 : 0.3) : RM ? 0.9 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * 3 - k * 0.8 + seed * 9)));
+    ctx.fillStyle = hot ? '#FF5A6E' : nightPass ? '#B8FFF6' : '#7FE6DA';
+    ctx.beginPath(); ctx.arc(x - bw * 0.33 + k * bw * 0.22, y + 0.015, hot ? (nightPass ? 0.026 : 0.022) : nightPass ? 0.018 : 0.013, 0, 7); ctx.fill();
   }
   ctx.globalAlpha = base;
 }
@@ -1752,7 +1938,8 @@ function drawTiles(t) {
       else if (w === 'S') drawSea(tl, i, info[i], t, L);
       else if (w === 'M') drawMeadow(tl, i);
       else if (w === 'D') drawDataCentre(tl, i, info[i], t, false);
-      if (tl.d[i] > 0 && (w === 'H' || w === 'F' || w === 'D')) drawVines(tl, i, tl.d[i]);
+      if (tl.d[i] > 0 && (w === 'H' || w === 'F')) drawVines(tl, i, tl.d[i]);
+      else if (tl.d[i] > 0 && w === 'D') drawHeat(tl, i, tl.d[i], t);
     }
     if (rumor && tl.dream) { // a dream: faint scanlines that drift down
       ctx.save(); hexPath(0.97); ctx.clip();
@@ -1812,6 +1999,53 @@ function drawCurrents(t) {
     ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]); ctx.stroke();
   }
   ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
+}
+/* a tapped town or data centre: the rest of the land dims, an outline goes round it, dots mark the field and sea
+   wedges that feed it (or the sea that cools it), and its fading wedges are outlined, red where a big jungle can take them */
+function drawFocus(t) {
+  const f = ui.focus, night = state.level >= 4, pad = cam.s * 1.2;
+  const vis = [];
+  for (const k in state.map) {
+    const tl = state.map[k], c = hexCenter(tl.q, tl.r), [sx, sy] = toScreen(c[0], c[1]);
+    if (sx < -pad || sx > W + pad || sy < -pad || sy > H + pad) continue;
+    vis.push([tl, c]);
+    setT(c[0], c[1]);
+    ctx.fillStyle = night ? 'rgba(10,8,30,.5)' : 'rgba(30,43,47,.4)';
+    for (let i = 0; i < 6; i++) {
+      const id = tl.id + ':' + i;
+      if (f.members.has(id) || f.food.has(id)) continue;
+      wedgePath(i, 1.01); ctx.fill();
+    }
+  }
+  // the outline: every side of one of its wedges that faces something else
+  ctx.strokeStyle = night || f.T === 'D' ? '#F6FAF7' : '#1E2B2F'; ctx.lineWidth = 2.4 / cam.s; ctx.lineCap = 'round';
+  for (const [tl, c] of vis) {
+    setT(c[0], c[1]); ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      if (!f.members.has(tl.id + ':' + i)) continue;
+      const A = CORN[i], B = CORN[(i + 1) % 6];
+      if (!f.members.has(tl.id + ':' + (i + 5) % 6)) { ctx.moveTo(0, 0); ctx.lineTo(A[0], A[1]); }
+      if (!f.members.has(tl.id + ':' + (i + 1) % 6)) { ctx.moveTo(0, 0); ctx.lineTo(B[0], B[1]); }
+      const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
+      if (!nb || !f.members.has(nb.id + ':' + (i + 3) % 6)) { ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); }
+    }
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  const at = id => { const [tid, i] = id.split(':').map(Number), tl = idMap[tid]; if (!tl) return -1; const c = hexCenter(tl.q, tl.r); setT(c[0], c[1]); return i; };
+  const r = Math.max(0.075, 4.5 / cam.s);
+  for (const id of f.food) {
+    const i = at(id); if (i < 0) continue;
+    const [x, y] = wpt(i, 0.34, 0.34);
+    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    ctx.fillStyle = f.T === 'D' ? '#2A9DB0' : '#2F7A4D'; ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = RM ? 1 : 0.7 + 0.3 * Math.sin(t * 4);
+  for (const id of f.fading) {
+    const i = at(id); if (i < 0) continue;
+    wedgePath(i, 0.9); ctx.lineWidth = 3 / cam.s; ctx.strokeStyle = f.T === 'D' || f.risk.has(id) ? '#E8364F' : '#E59A1C'; ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 function drawPending(t) {
   const pulse = RM ? 0.5 : 0.32 + 0.26 * Math.sin(t * 4);
@@ -1938,15 +2172,24 @@ function drawText(now) {
     ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif';
     const name = lb.name, tw = ctx.measureText(name).width;
     const sub = lb.dc ? 'data centre' : L >= 2 ? `AQ ${lb.aq} → ${lb.zone}${lb.homed ? ' ◎' : ''}` : TIER_H[Math.max(0, lb.tier)];
+    // beside the name: a town's food or a data centre's cooling, what it has against what it needs
+    const have = lb.dc ? lb.cool : lb.supply, short = have < lb.need, badge = lb.need != null ? have + '/' + lb.need : '';
     ctx.font = '500 10px "IBM Plex Mono", monospace';
-    const sw = ctx.measureText(sub).width;
-    const bw = Math.max(tw, sw) + 18, bh = 34, x0 = sx - bw / 2, y0 = sy - bh / 2;
+    const sw = ctx.measureText(sub).width, gw = badge ? ctx.measureText(badge).width + 6 : 0;
+    const bw = Math.max(tw + gw, sw) + 18, bh = 34, x0 = sx - bw / 2, y0 = sy - bh / 2;
     if (placed.some(p => x0 < p[2] && x0 + bw > p[0] && y0 < p[3] && y0 + bh > p[1])) continue;
     placed.push([x0, y0, x0 + bw, y0 + bh]);
     ctx.fillStyle = lb.dc ? 'rgba(43,49,66,.94)' : 'rgba(246,250,247,.94)';
     ctx.strokeStyle = lb.dc ? 'rgba(127,230,218,.6)' : lb.homed && L >= 2 ? '#C23B5A' : 'rgba(30,43,47,.25)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0, y0, bw, bh, 9) : ctx.rect(x0, y0, bw, bh); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = lb.dc ? '#E6FFFB' : '#1E2B2F'; ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif'; ctx.fillText(name, sx, y0 + 12);
+    const nx = sx - (tw + gw) / 2; // the name and its badge, centred together
+    ctx.fillStyle = lb.dc ? '#E6FFFB' : '#1E2B2F'; ctx.font = '600 14px "Baloo 2", ui-rounded, system-ui, sans-serif'; ctx.fillText(name, nx + tw / 2, y0 + 12);
+    if (badge) {
+      ctx.textAlign = 'left'; ctx.font = '500 10px "IBM Plex Mono", monospace';
+      ctx.fillStyle = lb.dc ? (short ? '#FF5A6E' : '#7FE6DA') : short ? '#C23B5A' : '#2F7A4D';
+      ctx.fillText(badge, nx + tw + 6, y0 + 12.5);
+      ctx.textAlign = 'center';
+    }
     ctx.fillStyle = lb.dc ? '#7FE6DA' : L >= 2 ? REGION_COL[S.region(lb.zone)] : '#586A6C'; ctx.font = '500 10px "IBM Plex Mono", monospace'; ctx.fillText(sub, sx, y0 + 26);
   }
   if (L >= 1 && s >= 34) {
@@ -1975,6 +2218,7 @@ function draw(now) {
   if (state.level >= 1) drawCurrentTint();
   if (state.level >= 4) drawNight(t);
   if (state.level >= 1) drawCurrents(t);
+  if (ui.focus) drawFocus(t);
   drawPending(t);
   drawClearTarget();
   drawGhost(t);
@@ -2064,6 +2308,7 @@ function hitLemur(wx, wy) {
 }
 function onTap(sx, sy) {
   const [wx, wy] = toWorld(sx, sy);
+  if (ui.focus) { ui.focus = null; ui.dirty = true; updateHint(); } // any tap on the map clears a tapped town's highlight
   const lm = hitLemur(wx, wy);
   if (lm) { openLemur(lm); return; }
   const [q, r] = pixelToHex(wx, wy), k = S.key(q, r), tile = state.map[k];
@@ -2073,7 +2318,10 @@ function onTap(sx, sy) {
     ui.ghost = { q, r, k: bestRot(selectedTile(), q, r, ui.ghost ? ui.ghost.k : -1).k };
     updateTools(); updateHint(); ui.dirty = true; return;
   }
-  if (tile) { openInspector(tile); return; }
+  if (tile) { // the wedge under the finger decides whether a mixed tile shows its town or its data centre
+    const c = hexCenter(q, r), wi = ((Math.floor(Math.atan2(wy - c[1], wx - c[0]) / (Math.PI / 3)) % 6) + 6) % 6;
+    openInspector(tile, wi); return;
+  }
   ui.ghost = null; updateTools(); updateHint(); ui.dirty = true;
 }
 

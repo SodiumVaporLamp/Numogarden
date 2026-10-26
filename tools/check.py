@@ -1,7 +1,9 @@
 """Phone check: load docs/index.html headless at 390x844 with touch, place 10 tiles by tapping,
-tap a tile, then open the info sheet, undo, and reload. Pass = 10 placements land and change the
+tap a tile, then open the info sheet, undo, and reload. Then load a night world made in the page
+(seed 1000) and tap its biggest town and a data centre. Pass = 10 placements land and change the
 score, the tile tap opens the inspector, undo and reload work, no sideways overflow, a non-blank
-canvas, and zero console errors.
+canvas, the night world's town and data centre light up with their food and cooling, and zero
+console errors.
 
 Google Fonts requests are stubbed because sandboxes often cannot reach them; that only swaps
 the typefaces for fallbacks. Drop the two page.route lines to test with real fonts.
@@ -12,6 +14,76 @@ from playwright.async_api import async_playwright
 import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 URL = (ROOT / 'docs/index.html').as_uri()
+async def night_world(page):
+    """A night world made in the page with the real rules (seed 1000, greedy play until data centres have arrived),
+    to check the tapped-town highlight: tapping the biggest town names its food, closing the sheet leaves the town lit
+    with its food in the hint, a tap on empty ground clears it, and a tapped data centre names its cooling."""
+    made = await page.evaluate('''() => {
+      const S = window.Sim, st = S.newGame(1000);
+      for (let t = 0; t < 400 && !(st.dcSince != null && st.turn >= 220); t++) {
+        while (st.choices > 0) S.choose(st, t % 2 ? 'x' : 'r');
+        let best = null;
+        for (let i = 0; i < st.offers.length; i++) for (const [q, r] of S.frontier(st)) for (let k = 0; k < 6; k++) {
+          const e = S.evalPlacement(st, S.rot(st.offers[i], k), q, r), sc = e.m * 10 + e.n;
+          if (!best || sc > best.sc) best = { sc, i, q, r, k };
+        }
+        S.place(st, { from: 'offer', i: best.i }, best.q, best.r, best.k);
+      }
+      localStorage.setItem('numogarden-v1', JSON.stringify({ state: st, cam: { x: 0, y: 0, s: 46 } }));
+      return { turn: st.turn, level: st.level, dcSince: st.dcSince };
+    }''')
+    await page.reload(); await page.wait_for_timeout(900)
+    # the wedge to tap: the biggest named town's, or a data centre's; the camera moves there and the tap lands on the wedge
+    aim = '''(T) => {
+      const st = __numo.state, v = window.Sim.view(st), a = Math.PI / 3;
+      let best = null;
+      for (const k in st.map) { const t = st.map[k], inf = v.info[t.id] || [];
+        for (let i = 0; i < 6; i++) { const c = inf[i]; if (t.w[i] !== T || !c || (T === 'H' && !(st.groups[c.tag] || {}).name)) continue;
+          if (!best || c.size > best.size) best = { t, i, size: c.size }; } }
+      if (!best) return null;
+      const h = __numo.hexCenter(best.t.q, best.t.r), cam = __numo.cam; cam.x = h[0]; cam.y = h[1]; __numo.ui.dirty = true;
+      const s = __numo.toScreen(h[0] + (Math.cos(a * best.i) + Math.cos(a * (best.i + 1))) / 3, h[1] + (Math.sin(a * best.i) + Math.sin(a * (best.i + 1))) / 3);
+      const r = document.getElementById('board').getBoundingClientRect();
+      return { x: r.left + s[0], y: r.top + s[1], size: best.size };
+    }'''
+    res = dict(made)
+    for T, word in (('H', 'food'), ('D', 'cooling')):
+        pt = await page.evaluate(aim, T)
+        if not pt: res[T] = 'none found'; continue
+        await page.wait_for_timeout(150)
+        await page.touchscreen.tap(pt['x'], pt['y']); await page.wait_for_timeout(500)
+        text = await page.evaluate('document.getElementById("sheet").innerText')
+        named = ('needs' in text or 'gets by' in text) if T == 'H' else 'data centre' in text
+        if await page.evaluate('!!document.getElementById("closeS")'): await page.tap('#closeS'); await page.wait_for_timeout(250)
+        lit = await page.evaluate('__numo.ui.focus && __numo.ui.focus.T')
+        hint = await page.evaluate('document.getElementById("hint").textContent')
+        if T == 'H': await page.screenshot(path=str(ROOT / 'results/phone-check-night.png'))
+        # a tap on empty ground, two hexes clear of any land, clears the highlight (the camera pans there first)
+        gap = await page.evaluate('''() => {
+          const st = __numo.state, cam = __numo.cam, r = document.getElementById('board').getBoundingClientRect();
+          const [q0, r0] = [Math.round(cam.x / 1.5), Math.round(cam.y / Math.sqrt(3) - cam.x / 3)];
+          for (let d = 2; d < 40; d++) for (let q = q0 - d; q <= q0 + d; q++) for (let rr = r0 - d; rr <= r0 + d; rr++) {
+            if (window.Sim.hexDist(q0, r0, q, rr) !== d) continue;
+            let near = false; for (const k in st.map) { const t = st.map[k]; if (window.Sim.hexDist(t.q, t.r, q, rr) <= 1) { near = true; break; } }
+            if (near) continue;
+            const h = __numo.hexCenter(q, rr); cam.x = h[0]; cam.y = h[1]; __numo.ui.dirty = true;
+            const s = __numo.toScreen(h[0], h[1]);
+            return { x: r.left + s[0], y: r.top + s[1] };
+          }
+          return null; }''')
+        cleared = None
+        if gap:
+            await page.wait_for_timeout(100)
+            await page.touchscreen.tap(gap['x'], gap['y']); await page.wait_for_timeout(200)
+            cleared = await page.evaluate('!__numo.ui.focus && document.getElementById("scrim").hidden')
+        res[T] = {'size': pt['size'], 'sheet_names_it': named, 'lit_after_close': lit == T, 'hint_names_it': word in hint, 'tap_clears': cleared}
+    await page.tap('#infoBtn'); await page.wait_for_timeout(250)
+    res['explainer_has_night'] = await page.evaluate('[...document.querySelectorAll("#sheet summary")].some(s => s.textContent === "Night")')
+    await page.tap('#closeS'); await page.wait_for_timeout(100)
+    res['ok'] = (made['dcSince'] is not None and res['explainer_has_night']
+                 and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
+    return res
+
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
@@ -73,11 +145,13 @@ async def main():
         # reload: the world should come back from storage
         await page.reload(); await page.wait_for_timeout(800)
         reloaded = await page.evaluate('__numo.state.turn')
+        night = await night_world(page)
         ok = (placed == 10 and after['turn'] - before['turn'] == 10 and after['stars'] > before['stars']
-              and undone == after['turn'] - 1 and reloaded == undone and overflow <= 0 and distinct > 50 and inspector and not errors)
+              and undone == after['turn'] - 1 and reloaded == undone and overflow <= 0 and distinct > 50 and inspector
+              and night['ok'] and not errors)
         print('PHONE CHECK:', 'PASS' if ok else 'FAIL')
         print(json.dumps({'before': before, 'after': after, 'placed': placed, 'inspector_opens': inspector, 'turn_after_undo': undone, 'turn_after_reload': reloaded,
-                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'errors': errors}, indent=1))
+                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'night_world': night, 'errors': errors}, indent=1))
         await b.close()
         return ok
 sys.exit(0 if asyncio.run(main()) else 1)

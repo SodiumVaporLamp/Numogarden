@@ -121,9 +121,16 @@ No rule eats fields: towns live on fields or sea as before, so inland towns run 
 - Tap a spot to preview at the best rotation, tap the preview to turn it, then Place.
 - Drag to pan and pinch to zoom; wheel zoom and keys R, Enter and Z on desktop.
 
-The placement hint names any current a placement would open ("opens a Hold current (7::2)"). The tile inspector lists the currents acting on a tile, with the carrier and whether it is a pair tile or fading. A sheet opened by a board tap ignores scrim clicks for 400 ms, because the tap's own click lands on the new scrim; in v1 that closed the inspector and lemur cards as soon as they opened. A world saved before currents picks them up on load.
+The placement hint names any current a placement would open ("opens a Hold current (7::2)"). The tile inspector lists the currents acting on a tile, with the carrier and whether it is a pair tile or fading, and says when a current has nothing to act on right now: Plex resting at the cap, Warp with nothing fading or building near it, Surge with no hamlets, Sink with no hamlets or fields. A sheet opened by a board tap ignores scrim clicks for 400 ms, because the tap's own click lands on the new scrim; in v1 that closed the inspector and lemur cards as soon as they opened. A world saved before currents picks them up on load.
 
-Data centres are dark slate slabs with a row of cyan lights that ripple; they puff steam where they touch sea, show a blinking red light while their cluster runs hot, and glow at night like the windows. Dreams are rumor ghosts with faint drifting scanlines, and a dream about to be laid glows as a dashed violet hex. A data centre that took a town's name gets a dark label ("data centre"); a split town or data centre keeps its label on its largest piece only. The inspector gives a data centre's size, sea contacts against its need and where its name came from, and calls a dream a dream. The hint adds "Data centres need sea next to them." for tiles with D, and the gift sheet says when wild land is at the cap, so the Plex choice gives stars instead.
+Data centres are dark slate slabs with a row of cyan lights that ripple; they puff steam where they touch sea and glow at night like the windows. While a cluster runs hot, all its lights turn red and blink together, its slabs glow red, and heat rises from the wedge that will fall next. Dreams are rumor ghosts with faint drifting scanlines, and a dream about to be laid glows as a dashed violet hex. A data centre that took a town's name gets a dark label ("data centre"); a split town or data centre keeps its label on its largest piece only. The inspector gives a data centre's size, sea contacts against its need and where its name came from, and calls a dream a dream. The hint adds "Data centres need sea next to them." for tiles with D, and the gift sheet says when wild land is at the cap, so the Plex choice gives stars instead.
+
+**Needs at a glance** (after SVL's first long playtests). Every label has a badge beside the name: a town's food or a data centre's cooling, as have/need, green (cyan on a data centre) when it has enough and red when it is short. Tapping a town or a data centre opens the inspector over a lighter scrim and lights it up on the map. The rest of the land dims, an outline goes round it, and dots mark the field and sea wedges that feed it (or the sea that cools it). Its fading wedges get an amber outline, red where they border a jungle of `JCRIT`+ that can take them. The wedge under the finger decides which one a mixed tile shows. The highlight stays after the sheet closes, with a summary in the hint, until the next tap on the map, a tray tap, a turn or a placement. The inspector gives:
+- the size of the piece the tile is in. The pieces of a split town share one group record, and the record's size is whichever piece was counted last, so before this the inspector could call every tile of a city "a hamlet of 1 hamlet wedges". A smaller piece is "a piece of X, cut off from the rest";
+- food against need, and whether the town is building itself, awake but short of food, or how far it is from waking. `isAwake()` in sim.js is the one wake test, used by the rules and by `view()`;
+- why a fed town fades: only a Sink current wears a fed town down.
+
+The info sheet has short folding sections after Playing and Settings: The land (a line per terrain), Towns (sizes, waking, grokking, cities, metropolises, labels), Currents (from weirdness 1), Night (from weirdness 4), and What you see (a key to glows, vines, ghosts, steam, red lights, labels and the highlight). Its numbers come from CFG, so they stay right when the rules are tuned.
 
 Settings sit in the info sheet. **Show clean fits** is off by default: when on, clean-fit spots are drawn in teal and the hint adds "Teal spots fit cleanly." When off, every open spot looks alike except for a lighter fill where at least one edge matches. Settings are saved per device under `numogarden-prefs`, apart from the world, so New world keeps them.
 
@@ -181,6 +188,7 @@ Other things the harness shows:
 - A tap on a tile opens the inspector.
 - Undo works, and the world comes back from storage on reload.
 - No sideways overflow, the canvas is not blank, and there are zero console errors.
+- On a night world made in the page with the real rules (seed 1000, greedy play until data centres arrive, about 220 placements), tapping the biggest town names its food, closing the sheet leaves it lit with its food in the hint, and a tap on empty ground clears it. The same holds for a data centre and its cooling, and the info sheet has its Night section. The town shot goes to `results/phone-check-night.png`.
 
 Google Fonts are stubbed, so it runs offline.
 
@@ -207,7 +215,11 @@ Google Fonts are stubbed, so it runs offline.
 
 ## Next (agreed with the author)
 
-- Nothing is queued. The backlog below is open, and the author picks what comes next.
+- Two rule fixes from SVL's playtests, each through the harness:
+  - A split town's largest piece keeps its group record, and the smaller pieces get records of their own (see Known limitations).
+  - A data centre keeps at most 2 dreams out at once. At night there were 6.9 dream ghosts on the map on average and up to 22, and each one blocks a spot. The author chose 2 over 1 because the clutter was slight.
+
+The page changes from the same playtests are in (Needs at a glance, the red lights, the explainer).
 
 For data centres the author chose Field out and D in at night, cooling by sea only, the letter D, no eating fields, and absorbed towns lending their names; then the machines waiting for a town that builds itself at night (tuning history 15) and one shared Plex cap (16). Built in five harness-checked steps: D arriving, cooling, absorbing, dreaming, the page.
 
@@ -230,6 +242,7 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 
 - **Perfect fits are rare.** Spots with 4+ neighbours are uncommon, so most Plex tiles and rumors come from the gift meter.
 - **Jungle is the biggest terrain in long games.** With data centres it is about 46% at placement 600, as hot inland data centres fall to it, and the top share in any run is 51–54%, nearer the 60% line than before. Plex sits at its 8% cap.
+- **The pieces of a split town share one group record.** Some named town is in pieces on 91% of steps (12 night games). While a town has a stray piece it can't grok, because each piece restarts the town's same-size clock; a starving piece can post the town's hunger warning; and the pieces of a split data centre share one dream timer. The page counts each piece itself, so what it shows is right.
 - **Lemurs are small to tap** (0.3-hex hit radius).
 - **Undo isn't saved.** The stack lives in memory only, so a reload clears it.
 - **The live-reload hook is a guess.** `window.claude.hot` snapshot/ready keeps a game going across artifact republishes. Its exact API was guessed and every call is guarded; it does nothing outside claude.ai.
