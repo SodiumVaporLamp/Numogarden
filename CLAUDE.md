@@ -135,6 +135,8 @@ The info sheet has short folding sections after Playing and Settings: The land (
 
 Settings sit in the info sheet. **Show clean fits** is off by default: when on, clean-fit spots are drawn in teal and the hint adds "Teal spots fit cleanly." When off, every open spot looks alike except for a lighter fill where at least one edge matches. Settings are saved per device under `numogarden-prefs`, apart from the world, so New world keeps them.
 
+**Colours.** Hamlets are a light cream (`#F2D9BE`) and fields a deeper wheat gold (`#D6B03A`) with darker furrows, so a town and the field that feeds it read apart. SVL asked for more contrast on 2026-10-26: the two had almost the same brightness (contrast ratio 1.03 by day and at night), and now it is 1.52 by day and 1.39 under the night overlay. Fields stand out from meadow too (1.40, up from 1.00).
+
 Saved to localStorage under `numogarden-v1` (wrapped in try/catch). Undo is 30 deep in memory. One deliberate light look, no dark theme; it dusks with weirdness instead. Fonts: Major Mono Display (wordmark, zone numerals, demon names, as on the SVL pages), Baloo 2 (UI), IBM Plex Mono (readouts). Honours prefers-reduced-motion.
 
 ## Testing
@@ -218,9 +220,31 @@ Google Fonts are stubbed, so it runs offline.
 18. **Dream ghosts cluttered the night.** SVL found the dreams slightly cluttered, and each ghost blocks a spot for up to 15 placements. The author chose a cap of 2 dreams out per data centre over 1. On the night check (sets 1000 and 4100000, the same tool for each) the ghosts on the map average 6.0 and 6.1 with no cap (max 22 and 23), 5.7 and 5.6 with a cap of 2 (max 20), and 4.0 and 4.1 with a cap of 1 (max 16 and 14). Dreams come true 16 and 17 times per game with no cap, 14.5 and 16 with 2, and 11 and 12 with 1, so every version passes the night line. A cap of 2 does little because a dreaming data centre rarely has more than one dream out: with no cap it has one 70% of the time, two 24% and three 6%. The clutter comes from about 4 data centres dreaming at once. All eleven sets pass with the cap of 2, and the median first self-builds don't move, since dreams only come at night.
 19. **Fields feed towns by their whole mass.** Human players expected a big field to feed a town it touches, even through a handful of shared edges, but a town ate only the field and sea wedges on its border, 3 hamlet wedges each. That border rule was the main brake: food grew with a town's border and need with its area. On a scratch copy (sets 1000 and 2900000, sea still by border, a field shared between its towns), counting the whole field at 3 hamlet wedges per field wedge broke the pacing: median first self-build 41.5 and 37, hamlets at 42% of the land by placement 100 then crashing as towns ate their fields, the largest town at 300 about 190 wedges, and careless worlds nearly always waking. At 1.5 per field wedge the medians were 48 and 45; at 1, 51 and 59.5, with the largest town about 62. Every version missed the floor of 60, because a town beside a big field counts as very well fed and wakes the moment its 40-placement timer allows; stricter waking (3× food, or maturity 50) got one set over the floor but not the other. The author chose 1 per field wedge with the waking rules unchanged, and lowered the floor to 40 before the full run: the zoomed-in play feels cozy anyway, the weirdness layers on top, and careless worlds may wake less. As built, food is counted in hamlet wedges against the town's size. For sea alone that is the old test (3 × sea contacts ≥ size), but waking on twice the food is a touch easier than the old twice the supply when a town's size isn't a multiple of 3. All twelve sets pass, the fresh set 4500000 included (median 45), and the night check passes on all five. Towns build themselves about twice as often, the largest town at 300 grows from 36–38 to 55–72 wedges, and careless worlds still wake in 19 to 31 of 50. At night the biggest town peaks at a median of 110 wedges and keeps a median of 22 by placement 600, against 55 and 7.
 
+## Playtest notes (not yet acted on)
+
+**SVL's longest run** (2026-10-25, engine 0ff8000, before fields fed towns by their whole mass). It ended at 2005★ with every weirdness level reached and four named data centres running (0ff8000). Several big towns were hungry, 22 ferries and 3 builders sat unused, a Plex clump stood by Katdubton, and several dreams were stuck at 0 to 2 of 3 believers (all 0ff8000).
+
+The numbers below come from the greedy bot, 20 seeds (1000 + i×7919), each marked with the engine it was measured on. Field feeding (tuning history 19, 47f3fef) came after them: it makes towns bigger and eats fields faster, so re-measure before building on them.
+
+- **Progression ends a third of the way in.** Night arrives at a median of placement 120 and data centres at 138, while 2005★ comes at about placement 417 (0ff8000). So about two-thirds of a run like SVL's has nothing new to unlock. Doors (see Backlog) are the cheapest post-night ladder, at nine steps; isles are the larger answer.
+- **The map drains into the Warp, by arithmetic.** J = 19 and S = 28 both reduce to 1, so any tile of only jungle and sea is zone 6. A whole tile of one terrain is always 3, 6 or 9: hamlet 3, field 9, and jungle, sea, meadow and D all 6. From placement 150 to 900 (0ff8000):
+  - Time-Circuit tiles fall from 43% to 30% (0ff8000).
+  - Tiles of only jungle and sea rise from 27% to 40% (0ff8000).
+  - Warp's share of live currents rises from 56% to 77% (0ff8000).
+
+  The Time-Circuit survives where towns and fields mix into the land, and night removes the fields. The chat suggested keeping it, because it fits: human time lives where people are, and the Outside, the sea and the machines sit in the Warp, Djynxx's region.
+  - Loops will mostly be Warp loops at night. In a sea of 6s, two touching zone-3 tiles close a loop with the two 6s they share, so tune loop doubling on Warp in night games first.
+  - The 6s become wallpaper. Idea: at night, dim the numerals of tiles in no current so the live circuit stands out.
+- **Ferries pile up.** SVL let them pile up without meaning to, not yet sure how best to use them. The bots never ferry, so their counts show how many the game hands out: 24 in hand at placement 300, 46 at 600 and 69 at 900 (0ff8000), since every sea that reaches 10, 20 or 35 wedges pays out. Ideas: make their use clearer, and give them a late-game job, such as setting out to a new isle with a trip further than three hexes.
+- **Dreams stall against their own data centre.** A dream is made of hamlet, field, jungle and sea but is laid against D, and D matches only D and X. So the sides touching the machine never agree, and a dream in a corner loses two or three possible believers. Idea: give each dream a D edge facing its data centre, so the machine believes its own dreams. A dream that comes true then grows the machine by a wedge: the machine feeding on its own output, which is where model collapse starts. It needs a harness pass, since dreams shifted Plex and perfect fits once before (tuning history 16).
+- **The night's shift reads in play.** The biggest towns were the hungry ones: Tikpaford had 10 of the 17 food it needed and Bubgool 10 of 13 (SVL's run, 0ff8000, in that engine's units: field and sea wedges on the border against a third of the town's size). Tikpaford's data centre carries its name.
+
 ## Next (agreed with the author)
 
-- Nothing is queued. The backlog below is open, and the author picks what comes next.
+- Nothing is queued. The backlog below is open, and the author picks what comes next. Suggested order from the playtest notes, for SVL to decide:
+  1. Two small changes: data centres believe their own dreams, and idle numerals dim at night.
+  2. Loops and doors, with Warp loops tuned in night games first.
+  3. Isles (setting out from an island at night to a new one), with ferries as the way to set out.
 
 From SVL's playtests on 2026-10-25: the page changes (Needs at a glance, the red lights, the explainer), split towns keeping separate records (tuning history 17), at most 2 dreams out per data centre (18), and fields feeding towns by their whole mass with the cozy floor at 40 (19). The author chose a dream cap of 2 over 1 because they weren't sure the clutter mattered and wanted play to decide; 18 has the numbers for 1.
 
@@ -230,6 +254,11 @@ For currents the author took the spec's defaults: the pair and its neighbours as
 
 ## Backlog (from the brainstorm, not yet scoped)
 
+- **Designs SVL approved on 2026-10-25.** SVL has the full spec; ask for it before building.
+  - Closed current loops: any loop of one current, four-tile diamonds included, doubles that current while it stands.
+  - Doors: a clump of n whole Plex tiles is the nth door and brings its demon, from Lurgo (1::0) to Uttunul (9::0). Doors of 3 or more dream strong rumors of their own zone.
+  - A data centre touching a closed loop dreams twice as often. It's a boost, not a requirement.
+  - Proposed alongside, not yet confirmed: extend Hold's calm eye to loops. Today a Hold loop holds itself and almost never breaks.
 - **Lemurs with jobs.** The five syzygy demons carry their currents around the map. The other 40 act by class: chronodemons nudge time, amphidemons swap tiles, xenodemons turn wedges wild or make a tile vanish. Some lore lines suggest verbs:
   - Oddubb, the broken mirror, flips a tile.
   - Tikkitix, the whirler, spins tiles.
