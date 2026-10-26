@@ -1012,20 +1012,28 @@ function rules(state, C, ev) {
     if (G && G.homed) p += CFG.HOME_BONUS;
     if (surge) p += CFG.SURGE_BONUS;
     const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? CFG.WARP_TRIES : 1); // Warp: builds twice per step
+    let spared = false;
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
-      const cand = [], wts = [];
+      // a city spares its fields: it builds on them only when nothing else touches it
+      const cand = [], wts = [], fields = [];
       for (const x of g.w) for (const y of adjW(C, x)) {
         const c = wt(C, y);
+        if (c === 'F' && city) { fields.push(y); continue; }
         const w = c === 'M' ? 4 : c === 'J' ? 3 : c === 'F' ? 1 : 0;
         if (w) { cand.push(y); wts.push(w); }
       }
-      if (!cand.length) break;
+      if (cand.length && fields.length) spared = true;
+      else if (!cand.length) { if (!fields.length) break; for (const y of fields) { cand.push(y); wts.push(1); } }
       addP(cand[pickIdx(st, wts)], 'H', 'sprawl');
     }
     if (G && !G.building) {
       G.building = true;
       pushEvent(state, ev, 'sprawl', `${G.name || 'A town'} is building itself now. Watch the glowing edges.`);
+    }
+    if (spared && G && !G.spares) {
+      G.spares = true;
+      pushEvent(state, ev, 'spare', `${G.name || 'A city'} spares its fields now. It builds on them only when nothing else is left.`);
     }
   }
 
@@ -1600,7 +1608,7 @@ function foodLine(c) {
 }
 /* why a town is or isn't building itself, by the same test the rules use (isAwake in sim.js) */
 function wakeLine(c, G) {
-  if (c.building) return 'It is awake and building itself.';
+  if (c.building) return 'It is awake and building itself.' + (c.size >= S.CFG.CITY ? ' As a city it spares its fields: it builds on them only when nothing else is left.' : '');
   if (c.awake) return 'It is awake. It builds itself again once it has food to spare.';
   if (!G || G.townSince == null || c.size < S.CFG.TIERS.H[2]) return '';
   const twice = S.CFG.FLUSH === 2 ? 'twice' : S.CFG.FLUSH + ' times';
@@ -1751,7 +1759,7 @@ function openInfo() {
         <li>Hamlets grow by size: ${S.CFG.TIERS.H[1]} wedges make a village, which names itself, ${S.CFG.TIERS.H[2]} a town (+1 builder), ${S.CFG.TIERS.H[3]} a city (+1 builder) and ${S.CFG.TIERS.H[4]} a metropolis (+2 builders). Builders clear a tile.</li>
         <li>A town wakes up once it has been a town for ${S.CFG.MATURE} placements and either reaches critical mass, ${S.CFG.CRIT} wedges, or has twice the food it needs. Once it has been a city, it stays awake for as long as it is a town. Awake, it builds itself into the land around it whenever it has food to spare, and eating its own fields can make it go hungry.</li>
         <li>A fed town of ${S.CFG.GROK_MIN} or more that stays about the same size for ${S.CFG.GROK_T} placements groks: it counts as a city from then on, wakes like one, and earns a builder.</li>
-        <li>A city holds off the jungle, which takes its fading wedges a third as fast. That stops when the city has under half the food it needs, when the jungle is ${S.CFG.TIERS.J[2]} or more, or inside a Sink current. Cities also build faster as they grow.</li>
+        <li>A city holds off the jungle, which takes its fading wedges a third as fast. That stops when the city has under half the food it needs, when the jungle is ${S.CFG.TIERS.J[2]} or more, or inside a Sink current. Cities also build faster as they grow, and they spare their fields, building on them only when nothing else is left.</li>
         <li>A metropolis lays a whole tile of its own every ${S.CFG.METRO_EVERY} placements while it is fed.</li>
         <li>A town's label shows its food: how many hamlet wedges its fields and sea can feed, against how many it has. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
       </ul>

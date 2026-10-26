@@ -795,20 +795,28 @@ function rules(state, C, ev) {
     if (G && G.homed) p += CFG.HOME_BONUS;
     if (surge) p += CFG.SURGE_BONUS;
     const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? CFG.WARP_TRIES : 1); // Warp: builds twice per step
+    let spared = false;
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
-      const cand = [], wts = [];
+      // a city spares its fields: it builds on them only when nothing else touches it
+      const cand = [], wts = [], fields = [];
       for (const x of g.w) for (const y of adjW(C, x)) {
         const c = wt(C, y);
+        if (c === 'F' && city) { fields.push(y); continue; }
         const w = c === 'M' ? 4 : c === 'J' ? 3 : c === 'F' ? 1 : 0;
         if (w) { cand.push(y); wts.push(w); }
       }
-      if (!cand.length) break;
+      if (cand.length && fields.length) spared = true;
+      else if (!cand.length) { if (!fields.length) break; for (const y of fields) { cand.push(y); wts.push(1); } }
       addP(cand[pickIdx(st, wts)], 'H', 'sprawl');
     }
     if (G && !G.building) {
       G.building = true;
       pushEvent(state, ev, 'sprawl', `${G.name || 'A town'} is building itself now. Watch the glowing edges.`);
+    }
+    if (spared && G && !G.spares) {
+      G.spares = true;
+      pushEvent(state, ev, 'spare', `${G.name || 'A city'} spares its fields now. It builds on them only when nothing else is left.`);
     }
   }
 
