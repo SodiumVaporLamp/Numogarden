@@ -2,8 +2,8 @@
 tap a tile, then open the info sheet, undo, and reload. Then load a night world made in the page
 (seed 1000) and tap its biggest town and a data centre. Pass = 10 placements land and change the
 score, the tile tap opens the inspector, undo and reload work, no sideways overflow, a non-blank
-canvas, the night world's town and data centre light up with their food and cooling, and zero
-console errors.
+canvas, the night world's town and data centre light up with their food and cooling, the explainer
+describes roads, and zero console errors.
 
 Google Fonts requests are stubbed because sandboxes often cannot reach them; that only swaps
 the typefaces for fallbacks. Drop the two page.route lines to test with real fonts.
@@ -30,7 +30,8 @@ async def night_world(page):
         S.place(st, { from: 'offer', i: best.i }, best.q, best.r, best.k);
       }
       localStorage.setItem('numogarden-v1', JSON.stringify({ state: st, cam: { x: 0, y: 0, s: 46 } }));
-      return { turn: st.turn, level: st.level, dcSince: st.dcSince };
+      const v = S.view(st);
+      return { turn: st.turn, level: st.level, dcSince: st.dcSince, roads: v.roads.filter(r => !r.overgrown).length, roadsFeeding: v.roads.filter(r => r.flow).length };
     }''')
     await page.reload(); await page.wait_for_timeout(900)
     # the wedge to tap: the biggest named town's, or a data centre's; the camera moves there and the tap lands on the wedge
@@ -54,6 +55,7 @@ async def night_world(page):
         await page.touchscreen.tap(pt['x'], pt['y']); await page.wait_for_timeout(500)
         text = await page.evaluate('document.getElementById("sheet").innerText')
         named = 'can feed' in text if T == 'H' else 'can cool' in text
+        if T == 'H': res['town_sheet_mentions_road'] = 'road' in text
         if await page.evaluate('!!document.getElementById("closeS")'): await page.tap('#closeS'); await page.wait_for_timeout(250)
         lit = await page.evaluate('__numo.ui.focus && __numo.ui.focus.T')
         hint = await page.evaluate('document.getElementById("hint").textContent')
@@ -79,8 +81,9 @@ async def night_world(page):
         res[T] = {'size': pt['size'], 'sheet_names_it': named, 'lit_after_close': lit == T, 'hint_names_it': word in hint, 'tap_clears': cleared}
     await page.tap('#infoBtn'); await page.wait_for_timeout(250)
     res['explainer_has_night'] = await page.evaluate('[...document.querySelectorAll("#sheet summary")].some(s => s.textContent === "Night")')
+    res['explainer_has_roads'] = await page.evaluate('document.getElementById("sheet").innerText.includes("build a road")')
     await page.tap('#closeS'); await page.wait_for_timeout(100)
-    res['ok'] = (made['dcSince'] is not None and res['explainer_has_night']
+    res['ok'] = (made['dcSince'] is not None and res['explainer_has_night'] and res['explainer_has_roads']
                  and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
     return res
 

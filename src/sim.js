@@ -36,6 +36,12 @@ const CFG = {
   GROK_T: 60,           // a fed town that stays within one wedge of one size this long groks: it jumps a tier
   GROK_MIN: 18,         // and only a town this big, three quarters of the way to CRIT (smaller ones are mostly careless play)
   TRADE_BONUS: 0.15, HOME_BONUS: 0.10,
+  ROADS: true,          // roads between towns (false = none, which replays the rules before them):
+  ROAD_REACH: 3,        //   two fed towns with this many hexes or fewer between their nearest tiles build a road,
+  ROAD_REACH_METRO: 4,  //   or this many when one of them is a metropolis, and a fed town feeds a hungry one along it;
+  ROAD_LINGER: 5,       //   a road out of reach, or one of whose towns is gone, lingers this many steps, overgrown
+  ROAD_WORN: 20,        //   steps for a path to wear into a road (the page draws it; the chronicle notes old roads lost)
+  ROAD_DOWNHILL: false, //   true = food goes only to a smaller town (measured in tuning history 22, not chosen)
   METRO_EVERY: 10,
   CURRENT_FX: true,     // currents act on the land (false = measure where they would be, for the harness baseline)
   CURRENT_LINGER: 3,    // steps a current keeps flowing after its syzygy breaks
@@ -148,10 +154,11 @@ function newGame(seed) {
   const state = {
     v: 1, seed: seed >>> 0, rng: { s: (seed >>> 0) || 1 }, turn: 0, stars: 0, meter: 0, streak: 0, level: 0,
     map: {}, nextId: 1, nextTag: 1, offers: [], hand: [], choices: 0,
-    pending: [], spawns: [], builders: 0, ferries: 0, currents: [],
+    pending: [], spawns: [], builders: 0, ferries: 0, currents: [], roads: {},
     groups: {}, lemurs: [], events: [],
     stats: { sprawl: 0, spawn: 0, reclaim: 0, decline: 0, firstSelfBuild: null, selfBuildAfter50: 0, reclaimAfter50: 0,
-             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0, groks: 0 }
+             perfect: 0, snug: 0, rumorsReal: 0, rumorsFaded: 0, syzygies: 0, lemurs: 0, wild: 0, groks: 0,
+             roads: 0, roadFed: 0, roadFood: 0 }
   };
   addTile(state, 0, 0, ['H', 'H', 'F', 'F', 'S', 'J'], 'n');
   for (let i = 0; i < 3; i++) state.offers.push(genTile(state.rng));
@@ -461,6 +468,89 @@ function feed(C) {
     for (const t of towns) { t.food += CFG.FIELD_FEEDS * mass * t.size / total; if (towns.length > 1) t.sharesField = true; }
   }
 }
+/* roads: two fed towns (TIERS.H[2]+ wedges) with up to ROAD_REACH hexes between their nearest tiles build a road,
+   ROAD_REACH_METRO when one of them is a metropolis. It stands while both are there and in reach, at any size, and
+   lingers ROAD_LINGER steps after that, overgrown, before it goes. Roads are keyed by the towns' group records, and
+   each keeps its two nearest tiles for the page. Needs feed() first. */
+function updateRoads(state, C, ev) {
+  if (!CFG.ROADS) return;
+  const R = state.roads || (state.roads = {}), H = C.byType.H, turn = state.turn, byTag = new Map(), geo = new Map();
+  for (const g of H.list) if (g.tag) byTag.set(g.tag, g);
+  const geom = g => { // a town's tiles, the ones on its edge, and their bounds in cube coordinates
+    let P = geo.get(g); if (P) return P;
+    P = { set: new Set(), edge: [], q0: Infinity, q1: -Infinity, r0: Infinity, r1: -Infinity, s0: Infinity, s1: -Infinity };
+    for (const x of g.w) P.set.add((x / 6) | 0);
+    for (const a of P.set) {
+      const t = C.tiles[a], s = -t.q - t.r;
+      P.q0 = Math.min(P.q0, t.q); P.q1 = Math.max(P.q1, t.q); P.r0 = Math.min(P.r0, t.r); P.r1 = Math.max(P.r1, t.r); P.s0 = Math.min(P.s0, s); P.s1 = Math.max(P.s1, s);
+      for (let i = 0; i < 6; i++) { const b = C.nb[a * 6 + i]; if (b < 0 || !P.set.has(b)) { P.edge.push(t); break; } }
+    }
+    geo.set(g, P); return P;
+  };
+  const near = (A, B) => { // the nearest tiles of two towns, [qA, rA, qB, rB], if they are in reach
+    const lim = 1 + (Math.max(A.size, B.size) >= CFG.TIERS.H[4] ? CFG.ROAD_REACH_METRO : CFG.ROAD_REACH);
+    const P = geom(A), Q = geom(B);
+    if (Math.max(P.q0 - Q.q1, Q.q0 - P.q1, P.r0 - Q.r1, Q.r0 - P.r1, P.s0 - Q.s1, Q.s0 - P.s1) > lim) return null;
+    for (const a of P.set) if (Q.set.has(a)) { const t = C.tiles[a]; return [t.q, t.r, t.q, t.r]; }
+    let best = lim + 1, ends = null; // the nearest pair is always on the two edges
+    for (const s of P.edge) for (const u of Q.edge) { const d = hexDist(s.q, s.r, u.q, u.r); if (d < best) { best = d; ends = [s.q, s.r, u.q, u.r]; } }
+    return ends;
+  };
+  for (const k of Object.keys(R)) {
+    const r = R[k], A = byTag.get(r.a), B = byTag.get(r.b), ends = A && B ? near(A, B) : null;
+    if (ends) { r.seen = turn; r.ends = ends; continue; }
+    // two towns that grew into one: the road is inside the town now (the chronicle already says they merged)
+    const one = A || B, at = A ? C.idx[key(r.ends[2], r.ends[3])] : C.idx[key(r.ends[0], r.ends[1])];
+    let merged = false;
+    if (one && !(A && B) && at !== undefined) for (let i = 0; i < 6; i++) if (H.cid[at * 6 + i] === one.gi) merged = true;
+    if (merged || turn - r.seen > CFG.ROAD_LINGER) {
+      delete R[k];
+      if (!merged && r.an && r.bn && r.seen - r.since >= CFG.ROAD_WORN) pushEvent(state, ev, 'overgrown', `The road between ${r.an} and ${r.bn} is overgrown.`);
+    }
+  }
+  const towns = H.list.filter(g => g.tag && g.size >= CFG.TIERS.H[2] && g.food >= g.size);
+  for (let i = 0; i < towns.length; i++) for (let j = i + 1; j < towns.length; j++) {
+    const a = Math.min(towns[i].tag, towns[j].tag), b = Math.max(towns[i].tag, towns[j].tag), k = a + '|' + b;
+    if (R[k]) continue;
+    const ends = near(byTag.get(a), byTag.get(b)); if (!ends) continue;
+    const an = state.groups[a] && state.groups[a].name, bn = state.groups[b] && state.groups[b].name;
+    R[k] = { a, b, since: turn, seen: turn, ends, an, bn };
+    state.stats.roads = (state.stats.roads || 0) + 1;
+    const met = state.roadsMet || (state.roadsMet = {}), first = !Object.keys(met).length;
+    if (an && bn && !met[k]) {
+      met[k] = 1;
+      pushEvent(state, ev, 'road', `${an} and ${bn} build a road between them.${first ? ' A town with food to spare feeds the other when it goes hungry.' : ''}`);
+    }
+  }
+}
+/* food along roads: a hungry town takes what the town at the other end of a standing road has to spare, before that
+   town builds for itself. One road at a time, so food never passes through a town: the hungry town nearest to fed
+   goes first, from the partner with the most to spare. Returns the flows for the page; needs feed() first. */
+function roadFood(state, C) {
+  const H = C.byType.H, flows = [];
+  for (const g of H.list) { g.roadIn = 0; g.roadOut = 0; }
+  if (!CFG.ROADS || !state.roads) return flows;
+  const byTag = new Map(), links = new Map();
+  for (const g of H.list) if (g.tag) byTag.set(g.tag, g);
+  for (const k in state.roads) {
+    const r = state.roads[k], A = byTag.get(r.a), B = byTag.get(r.b);
+    if (r.seen !== state.turn || !A || !B || A === B) continue;
+    if (!links.has(A)) links.set(A, []);
+    if (!links.has(B)) links.set(B, []);
+    links.get(A).push(B); links.get(B).push(A);
+  }
+  const short = g => g.size - g.food, order = (x, y) => short(x) - short(y) || x.tag - y.tag;
+  const hungry = [...links.keys()].filter(g => g.size >= CFG.STARVE_MIN && g.food < g.size).sort(order);
+  for (const h of hungry) for (const p of links.get(h).sort(order)) {
+    const spare = p.food - p.size, need = h.size - h.food;
+    if (need <= 0) break;
+    if (spare <= 0 || (CFG.ROAD_DOWNHILL && p.size <= h.size)) continue;
+    const n = Math.min(spare, need);
+    if (spare >= need) { p.food = Math.max(p.size, p.food - need); h.food = h.size; } else { p.food = p.size; h.food += spare; }
+    p.roadOut += n; h.roadIn += n; flows.push({ from: p, to: h, n });
+  }
+  return flows;
+}
 function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; i < TT.length; i++) if (size >= TT[i]) k = i; return k; }
 /* a town wakes once it has been a town for MATURE steps (half that in a Surge) and is at critical mass,
    or still a town after once being a city, or very well fed; the page asks the same question */
@@ -625,8 +715,18 @@ function rules(state, C, ev) {
     pend.add(k); P.push(tag ? { id: t.id, i, from: t.w[i], to, cause, tag } : { id: t.id, i, from: t.w[i], to, cause }); return true;
   };
 
-  // hamlets: food from the fields and sea they touch; shared seas mean trade
+  // hamlets: food from the fields and sea they touch, and along roads; shared seas mean trade
   feed(C);
+  updateRoads(state, C, ev);
+  const fed = new Set();
+  for (const f of roadFood(state, C)) {
+    state.stats.roadFood = (state.stats.roadFood || 0) + f.n;
+    if (f.to.food >= f.to.size) fed.add(f.to);
+    const k = Math.min(f.from.tag, f.to.tag) + '|' + Math.max(f.from.tag, f.to.tag), met = state.roadsMet || (state.roadsMet = {});
+    const A = state.groups[f.from.tag], B = state.groups[f.to.tag];
+    if (met[k] === 1 && A && A.name && B && B.name) { met[k] = 2; pushEvent(state, ev, 'roadfeed', `${A.name} feeds ${B.name} along the road.`); }
+  }
+  state.stats.roadFed = (state.stats.roadFed || 0) + fed.size; // town-steps a road kept fed
   const seaTowns = new Map();
   for (const g of H.list) for (const y of g.sea) { const sg = S.cid[y]; if (sg >= 0) { if (!seaTowns.has(sg)) seaTowns.set(sg, new Set()); seaTowns.get(sg).add(g.gi); } }
   for (const hs of seaTowns.values()) if (hs.size >= 2) for (const gi of hs) H.list[gi].trade = true;
@@ -953,6 +1053,9 @@ function currentFx(state) {
 function view(state) {
   const C = clusters(state), fx = currentFx(state);
   feed(C);
+  // food along roads, as the rules count it; roadFood() needs each town's group record, read from its wedges
+  for (const g of C.byType.H.list) { g.tag = 0; for (const x of g.w) { const tg = C.tiles[(x / 6) | 0].tg[x % 6]; if (tg) { g.tag = tg; break; } } }
+  const flows = roadFood(state, C), nameOf = g => (state.groups[g.tag] && state.groups[g.tag].name) || null;
   const info = {}, whole = {};
   for (const T of LAND) {
     for (const g of C.byType[T].list) {
@@ -967,6 +1070,8 @@ function view(state) {
         let surge = false;
         if (fx.surge.size) for (const x of g.w) if (fx.surge.has(C.tiles[(x / 6) | 0].id)) { surge = true; break; }
         cell.food = g.food; cell.sea = g.sea.size; cell.shared = g.sharesField;
+        cell.roadIn = g.roadIn; cell.roadOut = g.roadOut; // food a road brings it or takes to a hungry town, and from whom
+        cell.roadFrom = flows.filter(f => f.to === g).map(f => nameOf(f.from)); cell.roadTo = flows.filter(f => f.from === g).map(f => nameOf(f.to));
         cell.awake = isAwake(state, g, state.groups[tag], surge);
         cell.building = cell.awake && g.food >= g.size + 1;
         cell.matureIn = matureIn(state, state.groups[tag], surge);
@@ -1000,7 +1105,13 @@ function view(state) {
     let sx = 0, sy = 0; for (const x of g.w) { const t = C.tiles[(x / 6) | 0]; sx += t.q; sy += t.r; }
     return { size: g.size, q: sx / g.size, r: sy / g.size };
   });
-  return { info, labels, dlabels, seas };
+  // roads with their two nearest tiles, how long they have stood, and the food on them this step
+  const roads = [];
+  for (const k in state.roads || {}) {
+    const r = state.roads[k], f = flows.find(f => (f.from.tag === r.a && f.to.tag === r.b) || (f.from.tag === r.b && f.to.tag === r.a));
+    roads.push({ a: r.a, b: r.b, an: r.an, bn: r.bn, ends: r.ends, age: state.turn - r.since, overgrown: r.seen !== state.turn, flow: f ? { n: f.n, toB: f.to.tag === r.b } : null });
+  }
+  return { info, labels, dlabels, seas, roads };
 }
 
 function shares(state) {

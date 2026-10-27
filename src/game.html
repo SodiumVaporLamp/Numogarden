@@ -580,12 +580,37 @@ function focusOf(tl, wi) {
   }
   return Object.assign(p, { T, members, food, fading, risk });
 }
-/* food in hamlet wedges: what its fields and sea can feed (feed() in sim.js), against its size */
+function andList(a) { return a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
+/* food in whole hamlet wedges: what its own fields and sea feed, and what its roads bring or take (roadFood() in
+   sim.js), rounded so that they add up to the label's number */
+function roadShown(c) {
+  const own = Math.floor(c.food - (c.roadIn || 0) + (c.roadOut || 0)), total = Math.floor(c.food);
+  return { own, total, inn: Math.max(0, total - own), out: Math.max(0, own - total) };
+}
+function names(a) { const n = a.filter(Boolean).map(esc); return n.length ? andList(n) : 'a town on its road'; }
+/* food in hamlet wedges: what its fields and sea can feed (feed() in sim.js) and its roads bring, against its size */
 function foodLine(c) {
-  const can = `Its fields and sea can feed ${plural(Math.floor(c.food), 'hamlet wedge')}`;
+  const f = roadShown(c), can = `Its fields and sea can feed ${plural(f.own, 'hamlet wedge')}`;
+  const by = f.inn ? `${names(c.roadFrom)} ${c.roadFrom.filter(Boolean).length > 1 ? 'send' : 'sends'} food for ${f.inn} more along the road` : '';
+  const gives = f.out ? ` It sends food for ${plural(f.out, 'wedge')} to ${names(c.roadTo)} along the road, before it builds for itself.` : '';
   const shared = c.shared ? ' A field it touches feeds another town too, so they share it by size.' : '';
-  if (c.size < S.CFG.STARVE_MIN) return `${can}. A hamlet this small gets by on its own.${shared}`;
-  return `${can}, and it has ${c.size}, so it ${c.food >= c.size ? 'is fed' : 'is going hungry and fades one wedge at a time'}.${shared}`;
+  if (c.size < S.CFG.STARVE_MIN) return `${can}.${by ? ' ' + by + '.' : ''} A hamlet this small gets by on its own.${gives}${shared}`;
+  const fed = c.food >= c.size;
+  if (by) return `${can}, and it has ${c.size}. ${by}, so it ${fed ? 'is fed' : 'is still going hungry and fades one wedge at a time'}.${gives}${shared}`;
+  return `${can}, and it has ${c.size}, so it ${fed ? 'is fed' : 'is going hungry and fades one wedge at a time'}.${gives}${shared}`;
+}
+/* the roads a town's group record has, standing or overgrown */
+function roadLine(tag) {
+  if (!tag || !view.roads) return '';
+  const open = [], grown = [];
+  for (const r of view.roads) {
+    if (r.a !== tag && r.b !== tag) continue;
+    const o = r.a === tag ? r.b : r.a;
+    (r.overgrown ? grown : open).push(esc((state.groups[o] && state.groups[o].name) || (r.a === tag ? r.bn : r.an) || 'a town'));
+  }
+  let s = open.length ? (open.length === 1 ? `A road runs to ${open[0]}.` : `Roads run to ${andList(open)}.`) : '';
+  if (grown.length) s += (s ? ' ' : '') + (grown.length === 1 ? `The road to ${grown[0]} is overgrown.` : `The roads to ${andList(grown)} are overgrown.`);
+  return s;
 }
 /* why a town is or isn't building itself, by the same test the rules use (isAwake in sim.js) */
 function wakeLine(c, G) {
@@ -616,7 +641,8 @@ function focusHint(f) {
   const who = f.name ? (f.piece ? 'This piece of ' + f.name : f.name) : 'This ' + TIER_H[Math.max(0, c.tier)];
   const dots = f.food.size ? ' Dots mark its fields and sea.' : '';
   if (c.size < S.CFG.STARVE_MIN) return `${who} is small enough to get by on its own.${dots}`;
-  return `${who}: food for ${plural(Math.floor(c.food), 'wedge')}, and it has ${c.size}${c.food < c.size ? ', so it is going hungry' : ''}.${dots}`;
+  const fs = roadShown(c), road = fs.inn ? ` (${fs.inn} by road)` : fs.out ? ` after sending ${fs.out} by road` : '';
+  return `${who}: food for ${plural(fs.total, 'wedge')}${road}, and it has ${c.size}${c.food < c.size ? ', so it is going hungry' : ''}.${dots}`;
 }
 /* what a current has to act on right now, so a quiet one doesn't look broken */
 function currentNow(name, ids) {
@@ -642,6 +668,7 @@ function openInspector(tl, wi) {
     townLines += town.piece && town.name ? `<p>A piece of ${esc(town.name)}, cut off from the rest: ${plural(c.size, 'hamlet wedge')}. The ${TIER_H[Math.max(0, S.tierOf('H', c.whole))]} itself has ${c.whole}.</p>`
       : `<p>A ${TIER_H[Math.max(0, c.tier)]} of ${plural(c.size, 'hamlet wedge')}.</p>`;
     townLines += `<p>${foodLine(c)}</p>`;
+    const roads = town.piece ? '' : roadLine(c.tag); if (roads) townLines += `<p>${roads}</p>`;
     const wake = wakeLine(c, G); if (wake) townLines += `<p>${wake}</p>`;
     if (f && f.T === 'H' && focusNote(f)) townLines += `<p class="note">${focusNote(f)}</p>`;
     if (L >= 2 && G && G.name && G.aq != null) townLines += `<p class="readout">AQ ${esc(G.name)} = ${G.aq} → zone ${G.zone}${G.homed ? ' · the name comes home' : ''}</p>`;
@@ -742,7 +769,8 @@ function openInfo() {
         <li>A fed town of ${S.CFG.GROK_MIN} or more that stays about the same size for ${S.CFG.GROK_T} placements groks: it counts as a city from then on, wakes like one, and earns a builder.</li>
         <li>A city holds off the jungle, which takes its fading wedges a third as fast. That stops when the city has under half the food it needs, when the jungle is ${S.CFG.TIERS.J[2]} or more, or inside a Sink current. Cities also build faster as they grow, and they spare their fields, building on them only when nothing else is left.</li>
         <li>A metropolis lays a whole tile of its own every ${S.CFG.METRO_EVERY} placements while it is fed.</li>
-        <li>A town's label shows its food: how many hamlet wedges its fields and sea can feed, against how many it has. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
+        <li>Two fed towns with ${S.CFG.ROAD_REACH} hexes or fewer between them build a road, or ${S.CFG.ROAD_REACH_METRO} when one of them is a metropolis. When one goes hungry, the other sends it the food it has to spare, before it builds for itself. A road wears in after ${S.CFG.ROAD_WORN} placements. If the towns drift apart or one of them fades, it grows over and is gone after ${S.CFG.ROAD_LINGER} placements.</li>
+        <li>A town's label shows its food: how many hamlet wedges its fields, sea and roads can feed, against how many it has. It is green when the town is fed and red when it is short. Tap a town to see what feeds it.</li>
       </ul>
     </details>
     ${state.level >= 1 ? `<details>
@@ -775,7 +803,8 @@ function openInfo() {
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null ? ' Dreams are ghosts with drifting lines.' : ''}</li>
         ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
-        <li>Labels show how many wedges a town's fields and sea can feed, or a data centre's sea can cool, against how many it has.</li>
+        ${(view.roads || []).length || state.stats.roads ? `<li>A road starts as a dashed path and wears into a sandy road. Dots moving along it carry food to a hungry town. A green dashed road is overgrown.${state.level >= 4 ? ' At night old roads are lit.' : ''}</li>` : ''}
+        <li>Labels show how many wedges a town's fields, sea and roads can feed, or a data centre's sea can cool, against how many it has.</li>
         <li>Tap a town or data centre to light it up. Dots mark what feeds or cools it, and outlines mark its fading wedges. Red ones border a big jungle that can take them.</li>
       </ul>
     </details>
@@ -1050,6 +1079,57 @@ function drawCurrents(t) {
   }
   ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
 }
+/* roads between towns, centre to centre of their nearest tiles: a dashed path at first, a sandy road once it has
+   stood ROAD_WORN placements, green and dashed while it lingers overgrown. Dots carry food along it to a hungry town.
+   lit: the lamps on old roads and the food on the move at night, drawn over the dark. only: just the roads of one
+   town (its highlight). */
+function drawRoads(t, lit, only) {
+  if (!view.roads || !view.roads.length) return;
+  const s = cam.s, pad = s * 2;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.lineCap = 'round';
+  for (const r of view.roads) {
+    if (only != null && r.a !== only && r.b !== only) continue;
+    const e = r.ends; if (e[0] === e[2] && e[1] === e[3]) continue; // two towns on one tile: nothing to draw
+    const ca = hexCenter(e[0], e[1]), cb = hexCenter(e[2], e[3]), pa = toScreen(ca[0], ca[1]), pb = toScreen(cb[0], cb[1]);
+    if (Math.max(pa[0], pb[0]) < -pad || Math.min(pa[0], pb[0]) > W + pad || Math.max(pa[1], pb[1]) < -pad || Math.min(pa[1], pb[1]) > H + pad) continue;
+    const worn = r.age >= S.CFG.ROAD_WORN, len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]), at = f => [pa[0] + (pb[0] - pa[0]) * f, pa[1] + (pb[1] - pa[1]) * f];
+    const line = () => { ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke(); };
+    const carts = () => { // food on its way to the hungry town, over the dark at night
+      if (!r.flow || r.overgrown || s < 16) return;
+      const [from, to] = r.flow.toB ? [0, 1] : [1, 0], rad = Math.max(2.2, s * 0.06);
+      for (let k = 0; k < 3; k++) {
+        const u = RM ? (k + 1) / 4 : (t * 0.35 + k / 3) % 1, [x, y] = at(from + (to - from) * u);
+        ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(x, y, rad, 0, 7); ctx.fill();
+        ctx.fillStyle = '#2F7A4D'; ctx.beginPath(); ctx.arc(x, y, rad * 0.6, 0, 7); ctx.fill();
+      }
+    };
+    if (lit) { // lamps along an old road
+      if (worn && !r.overgrown && s >= 16) {
+        ctx.globalCompositeOperation = 'lighter';
+        const n = Math.max(1, Math.round(len / (s * 0.8)));
+        for (let k = 1; k < n; k++) {
+          const [x, y] = at(k / n);
+          ctx.fillStyle = 'rgba(255,200,110,.22)'; ctx.beginPath(); ctx.arc(x, y, s * 0.13, 0, 7); ctx.fill();
+          ctx.fillStyle = 'rgba(255,224,150,.95)'; ctx.beginPath(); ctx.arc(x, y, Math.max(1.2, s * 0.035), 0, 7); ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      carts();
+      continue;
+    }
+    if (r.overgrown) {
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = '#4E8A55'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.setLineDash([s * 0.12, s * 0.1]); line();
+    } else if (worn) {
+      ctx.strokeStyle = '#8C7350'; ctx.lineWidth = Math.max(3, s * 0.15); line();
+      ctx.strokeStyle = '#E8D5A8'; ctx.lineWidth = Math.max(1.8, s * 0.09); line();
+    } else {
+      ctx.strokeStyle = '#9C7F55'; ctx.lineWidth = Math.max(1.5, s * 0.06); ctx.setLineDash([s * 0.09, s * 0.08]); line();
+    }
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    if (state.level < 4 || only != null) carts();
+  }
+  ctx.lineCap = 'butt';
+}
 /* a tapped town or data centre: the rest of the land dims, an outline goes round it, dots mark the field and sea
    wedges that feed it (or the sea that cools it), and its fading wedges are outlined, red where a big jungle can take them */
 function drawFocus(t) {
@@ -1096,6 +1176,7 @@ function drawFocus(t) {
     wedgePath(i, 0.9); ctx.lineWidth = 3 / cam.s; ctx.strokeStyle = f.T === 'D' || f.risk.has(id) ? '#E8364F' : '#E59A1C'; ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  if (f.T === 'H') drawRoads(t, false, f.cell.tag); // its roads stay bright
 }
 function drawPending(t) {
   const pulse = RM ? 0.5 : 0.32 + 0.26 * Math.sin(t * 4);
@@ -1266,7 +1347,8 @@ function draw(now) {
   drawValid();
   drawTiles(t);
   if (state.level >= 1) drawCurrentTint();
-  if (state.level >= 4) drawNight(t);
+  drawRoads(t, false);
+  if (state.level >= 4) { drawNight(t); drawRoads(t, true); }
   if (state.level >= 1) drawCurrents(t);
   if (ui.focus) drawFocus(t);
   drawPending(t);
