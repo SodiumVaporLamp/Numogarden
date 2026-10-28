@@ -251,6 +251,17 @@ The numbers below come from the greedy bot, 20 seeds (1000 + i×7919), each mark
 - **Dreams stall against their own data centre.** A dream is made of hamlet, field, jungle and sea but is laid against D, and D matches only D and X. So the sides touching the machine never agree, and a dream in a corner loses two or three possible believers. Idea: give each dream a D edge facing its data centre, so the machine believes its own dreams. A dream that comes true then grows the machine by a wedge: the machine feeding on its own output, which is where model collapse starts. It needs a harness pass, since dreams shifted Plex and perfect fits once before (tuning history 16). Built on 2026-10-26 as tuning history 20.
 - **The night's shift reads in play.** The biggest towns were the hungry ones: Tikpaford had 10 of the 17 food it needed and Bubgool 10 of 13 (SVL's run, 0ff8000, in that engine's units: field and sea wedges on the border against a third of the town's size). Tikpaford's data centre carries its name.
 
+**SVL's latest long game** (2026-10-27, engine 1ceb3ad). A Plex patch took over the land around one Plex tile, partly over Pipmuwick, a town at 348 of 341 food. The patch was a flower: one Plex tile with Plex currents running out from it. SVL found it interesting, but it feels like it should result in something. Maybe Plex needs a deeper rethink.
+
+How Plex patches grow, measured with the greedy bot on 20 seeds (1000 + i×7919) over 900 placements:
+- **The feedback loop.** A tile the Plex current turns fully wild reads zone 9 (six wild wedges add to 198), while a whole Plex tile reads 0. So each fully wild tile pairs with the Plex tile beside it and opens another Plex current, and the two rings around a Plex tile go wild.
+- **The patch is bounded.** In every game, at placements 300, 600 and 900, no wild wedge was more than two hexes from a whole Plex tile (1ceb3ad). Zone 0 only occurs on whole Plex tiles, so every Plex current has one in its pair, and a current acts only on its pair and their neighbours.
+- **The 8% cap is the only brake.** Wild land was at the cap, within a tenth of a point of 8%, in 13 of 20 games by placement 300, 19 by 600 and all 20 by 900 (1ceb3ad). Once there it sits at 7.9–8.2%, dipping under as new tiles add land; strictly at 8% or over it was 8, 11 and 11 games (1ceb3ad). Every rule skips wild wedges, so they never change back; only a builder clearing the tile removes one.
+- **Size at placement 900** (medians, 1ceb3ad): 29 whole Plex tiles, 27 fully wild ordinary tiles, 77 partly wild ones, and 27 live Plex currents.
+- **What the current turns wild,** about 307 wedges per game (1ceb3ad): jungle 41%, sea 20%, hamlet 12%, data centre 11%, field 9%, meadow 6%.
+
+So wild land has a way in and no way out: 8% of the map, gathered into permanent blobs that do nothing but match every edge and join clusters.
+
 ## Next (agreed with the author)
 
 - Nothing is queued. The backlog below is open, and the author picks what comes next. Suggested order from the playtest notes:
@@ -271,10 +282,23 @@ For currents the author took the spec's defaults: the pair and its neighbours as
   - Doors: a clump of n whole Plex tiles is the nth door and brings its demon, from Lurgo (1::0) to Uttunul (9::0). Doors of 3 or more dream strong rumors of their own zone.
   - A data centre touching a closed loop dreams twice as often. It's a boost, not a requirement.
   - Proposed alongside, not yet confirmed: extend Hold's calm eye to loops. Today a Hold loop holds itself and almost never breaks.
+- **What Plex patches could do** (ideas from SVL's chat on 2026-10-27, not chosen; see the latest long game under Playtest notes). A frame: the three Numogram regions as three states of land. The Time-Circuit is cultivated land (towns, fields). The Warp is the Outside and the machine; whole tiles of jungle, sea or data centre all read 6. The Plex is the unformed. In the Lab's descriptions (`data/lore.json`) the nine n::0 demons are the only ones stationed at a door, so Plex's job could be an opening, a thin place where things come through. Two ways out for wild land:
+  - Ripen into a door. This changes the approved door design above. A door opens once wild land fully rings its Plex clump, and its number still comes from the whole Plex tiles in the clump. A bigger clump has a bigger ring, so higher doors take longer. The door's demon comes through, and doors of 3 or more dream as designed.
+  - Spend it. When the player builds against wild land, each wild wedge they touch takes the terrain it faces. Every edge fits there, so a patch is the easiest place for perfect fits, and each patch becomes a choice: harvest it now or let it ripen. The cap stops being the only brake. Check perfect fits and Plex tiles in hand, which dreams once pushed up (tuning history 16).
 - **Lemurs with jobs.** The five syzygy demons carry their currents around the map. The other 40 act by class: chronodemons nudge time, amphidemons swap tiles, xenodemons turn wedges wild or make a tile vanish. Some lore lines suggest verbs:
   - Oddubb, the broken mirror, flips a tile.
   - Tikkitix, the whirler, spins tiles.
   - Ababbatok, the regenerator, heals decay.
+
+  More from SVL's chat on 2026-10-27 (not chosen):
+  - The blocker. Lemur positions live only in the renderer: `lemurPos` circles the arrival tile (`l.k`) by the clock. Any job needs each lemur on a tile in the rules engine, moving one step per placement through `state.rng` so seeds still replay.
+  - They believe. A lemur beside a ghost (a rumor or a dream) counts as one believer, and lemurs walk toward the nearest ghost. Rumors already work like hyperstition, fictions that make themselves real, and the visitors become the believers. A rumor that comes true already brings a visitor (`spawnLemur` with `'rumor'`), who would then go believe the next one. `LEMUR_MAX` (10) keeps it bounded. Check stars, since dreams already come true 58.5 to 64.5 times per night game (tuning history 20).
+  - Carriers ride their currents. The five syzygy demons (Uttunul, Murrumur, Oddubb, Djynxx, Katak) walk along their current's chains and loops, and the current acts at double strength on the tile they stand on. This pairs with the loop design.
+  - Doors bring them. Visitors arrive through open doors, the door's own demon first, and wait around the patch between errands.
+  - An alternative verb, patronage. A lemur settles beside a town whose name reduces to one of its two zones, and the town can't starve while it has a guest. This would make the AQ readouts matter: Pipmuwick (AQ 202 → 4) would draw any of the nine demons with a 4 in their pair, such as Krako (4::0) or Skoodu (4::2).
+  - Hold back the class verbs above (swap, spin, vanish) as things that happen unprompted. In a zen game, a visitor that rearranges a build at random reads as punishment. They'd work better as rare signature moves the player can see coming.
+  - Together it's one loop: the Plex tide ripens a patch, the patch opens a door, visitors come through and believe rumors and dreams into land, and each rumor made real brings another visitor.
+  - A first step, if SVL picks lemurs: lemur positions in the rules engine, plus believing, since every other lemur idea needs those positions.
 - **Name your own towns.** Type a village's name; its AQ sets its zone, and a homed name earns the growth bonus. This is the Lab's name-hunting as a mechanic.
 - **Rumors with prophecies.** A rumor carries a prediction ("a city will stand on this sea"). If it comes true within N placements it becomes canon in the chronicle, with a big reward. There is no failure state.
 - **The city that plays back.** A metropolis past some size places its own tiles to grow itself, as an agent sharing the map. Fed mostly by other hamlets instead of fields, it suffers model collapse and turns monotone; the Outside restores variety.
