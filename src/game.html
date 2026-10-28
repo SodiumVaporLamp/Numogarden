@@ -216,10 +216,11 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
 </div>
 
 <script>/*@@SIM@@*/</script>
+<script>/*@@ART@@*/</script>
 <script>
 (function () {
 'use strict';
-const S = window.Sim;
+const S = window.Sim, Art = window.Art;
 const LORE = /*@@LORE@@*/[];
 const SQ3 = Math.sqrt(3);
 const CORN = [0, 1, 2, 3, 4, 5].map(i => [Math.cos(Math.PI / 3 * i), Math.sin(Math.PI / 3 * i)]);
@@ -243,8 +244,8 @@ const ROOFS = ['#E0705A', '#5E8FB0', '#D9A13B', '#C9607A'];
 const STORE = 'numogarden-v1';
 /* settings belong to the device, not the world, so they live apart from the save and survive New world */
 const PREFS = 'numogarden-prefs';
-const prefs = { cleanFits: false };
-try { const p = JSON.parse(localStorage.getItem(PREFS) || 'null'); if (p && typeof p.cleanFits === 'boolean') prefs.cleanFits = p.cleanFits; } catch (e) { /* storage may be unavailable */ }
+const prefs = { cleanFits: false, oldTowns: false }; // oldTowns: today's houses instead of the town art (no switch in the page yet)
+try { const p = JSON.parse(localStorage.getItem(PREFS) || 'null'); if (p && typeof p.cleanFits === 'boolean') prefs.cleanFits = p.cleanFits; if (p && typeof p.oldTowns === 'boolean') prefs.oldTowns = p.oldTowns; } catch (e) { /* storage may be unavailable */ }
 function savePrefs() { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) { /* storage may be unavailable */ } }
 
 const $ = id => document.getElementById(id);
@@ -252,6 +253,7 @@ const cv = $('board'), ctx = cv.getContext('2d');
 const slotsEl = $('slots'), hintEl = $('hint'), toastsEl = $('toasts'), scrim = $('scrim'), sheet = $('sheet');
 
 let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {};
+let townArt = new Map(), townList = []; // each town tile's art tier and buildings, and every building back to front (planned in refresh)
 let cam = { x: 0, y: 0, s: 46 };
 let W = 0, H = 0, dpr = 1;
 const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0, sheetAt: 0, focus: null };
@@ -310,12 +312,49 @@ function refresh() {
     currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) });
     for (const t of area) (tint[t.id] || (tint[t.id] = new Set())).add(col);
   }
-  if (ui.ghost && state.map[S.key(ui.ghost.q, ui.ghost.r)]) ui.ghost = null;
+  planTowns();
+  if (ui.ghost && state.map[S.key(ui.ghost.q, ui.ghost.r)] && !S.isWildGround(state.map[S.key(ui.ghost.q, ui.ghost.r)])) ui.ghost = null;
   if (ui.mode === 'ferry' && state.ferries <= 0) ui.mode = 'place';
   if (ui.mode === 'builder' && state.builders <= 0) { ui.mode = 'place'; ui.clearKey = null; }
   computeValid();
   renderTray(); renderHud(); updateTools(); updateHint();
   ui.dirty = true;
+}
+/* town art (src/art.js): each town's tiles take art by its size, the tallest at its heart (Art.variedTiers), and a tile
+   takes the art of the town that owns most of its town wedges. Planned when the map changes; drawing only reads it. */
+function planTowns() {
+  townArt = new Map(); townList = [];
+  if (prefs.oldTowns) return;
+  const towns = new Map(), own = [];
+  for (const k in state.map) {
+    const tl = state.map[k]; if (tl.kind === 'r') continue;
+    const info = view.info[tl.id] || [], count = new Map();
+    let hn = 0;
+    for (let i = 0; i < 6; i++) if (tl.w[i] === 'H' && info[i]) { hn++; count.set(info[i], (count.get(info[i]) || 0) + 1); }
+    if (!hn) continue;
+    let best = null;
+    for (const [cell, n] of count) {
+      (towns.get(cell) || towns.set(cell, []).get(cell)).push([tl.q, tl.r, n, tl.id]);
+      if (!best || n > count.get(best) || (n === count.get(best) && cell.size > best.size)) best = cell;
+    }
+    own.push([tl, best, hn]);
+  }
+  const tierAt = new Map();
+  for (const [cell, town] of towns) {
+    const tiers = Art.variedTiers(town, Art.tierIndex(cell.size)), m = new Map();
+    town.forEach((c, j) => m.set(c[3], tiers[j]));
+    tierAt.set(cell, m);
+  }
+  for (const [tl, cell, hn] of own) {
+    const art = { id: tl.id, sid: tl.id, q: tl.q, r: tl.r, c: hexCenter(tl.q, tl.r), w: tl.w, ti: tierAt.get(cell).get(tl.id), hn };
+    art.plan = Art.planTile(art);
+    townArt.set(tl.id, art);
+    for (const b of art.plan) { b.tile = tl; townList.push(b); }
+  }
+  townList.sort((a, b) => a.wy - b.wy || a.wx - b.wx);
+  const last = new Map(); // vines on a tile's town wedges go on top of whichever of its buildings is drawn last
+  for (const b of townList) last.set(b.tile.id, b);
+  for (const b of last.values()) b.vines = true;
 }
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify({ state, cam })); } catch (e) { /* storage may be unavailable */ }
@@ -1069,17 +1108,19 @@ function drawTiles(t) {
       const col = wedgeColor(tl.w[i], info[i], i, t);
       wedgePath(i); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1.6 / cam.s; ctx.strokeStyle = col; ctx.stroke();
     }
+    const art = townArt.get(tl.id); // a town tile's buildings come later, in drawBuildings(); its ground is drawn here
     if (detail) for (let i = 0; i < 6; i++) {
       const w = tl.w[i];
-      if (w === 'H') drawHamlet(tl, i, info[i], t, L, false);
+      if (w === 'H') { if (!art) drawHamlet(tl, i, info[i], t, L, false); }
       else if (w === 'F') drawField(tl, i, L);
       else if (w === 'J') drawJungle(tl, i, info[i], t, L);
       else if (w === 'S') drawSea(tl, i, info[i], t, L);
       else if (w === 'M') drawMeadow(tl, i);
       else if (w === 'D') drawDataCentre(tl, i, info[i], t, false);
-      if (tl.d[i] > 0 && (w === 'H' || w === 'F')) drawVines(tl, i, tl.d[i]);
+      if (tl.d[i] > 0 && (w === 'F' || (w === 'H' && !art))) drawVines(tl, i, tl.d[i]);
       else if (tl.d[i] > 0 && w === 'D') drawHeat(tl, i, tl.d[i], t);
     }
+    if (detail && art) Art.drawTownGround(ctx, art);
     if (rumor && (tl.dream || tl.door)) { // a dream: faint scanlines that drift down, violet from a data centre, crimson from a door
       ctx.save(); hexPath(0.97); ctx.clip();
       ctx.strokeStyle = tl.door ? 'rgba(194,59,90,.6)' : 'rgba(110,79,208,.55)'; ctx.lineWidth = 1 / cam.s;
@@ -1106,10 +1147,11 @@ function drawNight(t) {
     setT(c[0], c[1]);
     const info = view.info[tl.id] || [];
     for (let i = 0; i < 6; i++) {
-      if (tl.w[i] === 'H') drawHamlet(tl, i, info[i], t, state.level, true);
+      if (tl.w[i] === 'H') { if (!townArt.has(tl.id)) drawHamlet(tl, i, info[i], t, state.level, true); }
       else if (tl.w[i] === 'D') drawDataCentre(tl, i, info[i], t, true);
     }
   }
+  drawBuildings(t, true); // the towns' lit windows, beacons and seams
   ctx.globalCompositeOperation = 'source-over';
 }
 function drawCurrentTint() {
@@ -1267,6 +1309,20 @@ function drawValid(over) {
     ctx.lineWidth = (clean ? 1.8 : 1.1) / cam.s; ctx.strokeStyle = clean ? 'rgba(31,140,120,.85)' : 'rgba(30,43,47,.28)';
     ctx.setLineDash([5 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
+}
+function drawBuildings(t, night) { // every visible town building as one list, back to front
+  if (cam.s < 16 || !townList.length) return;
+  const env = { L: state.level, t: RM ? 0 : t, motion: !RM, pw: ui.pointerW };
+  // buildings rise up to about 1.9 hex radii above their tile's centre, so keep tiles up to 2 radii below the screen
+  const padX = cam.s * 1.2, top = -cam.s * 1.2, bottom = H + cam.s * 2;
+  for (const b of townList) {
+    const [sx, sy] = toScreen(b.tc[0], b.tc[1]);
+    if (sx < -padX || sx > W + padX || sy < top || sy > bottom) continue;
+    setT(b.tc[0], b.tc[1]);
+    Art.drawBuilding(ctx, b, env, night);
+    if (b.vines && !night) for (let i = 0; i < 6; i++) if (b.tile.w[i] === 'H' && b.tile.d[i] > 0) drawVines(b.tile, i, b.tile.d[i]);
+  }
+  ctx.globalAlpha = 1;
 }
 function drawDoors(t) { // an open door glows crimson and its edge pulses, over the dark at night
   for (const d of view.doors || []) {
@@ -1439,6 +1495,7 @@ function draw(now) {
   drawValid(true);
   if (state.level >= 1) drawCurrentTint();
   drawRoads(t, false);
+  drawBuildings(t, false);
   if (state.level >= 4) { drawNight(t); drawRoads(t, true); }
   drawDoors(t);
   drawSettle(now);
@@ -1581,7 +1638,7 @@ function start(data) {
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ state: JSON.stringify(state), cam })); } catch (e) { /* not in a viewer */ }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderTray(); ui.dirty = true; });
   requestAnimationFrame(loop);
-  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter, updateHint };
+  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter, updateHint, get townArt() { return townArt; }, get townBuildings() { return townList.length; }, frameMs() { const t0 = performance.now(); draw(t0); return performance.now() - t0; } };
 }
 if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
 else start((window.claude && window.claude.hot && window.claude.hot.data) || {});

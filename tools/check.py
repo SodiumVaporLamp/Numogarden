@@ -1,6 +1,6 @@
 """Phone check: load docs/index.html headless at 390x844 with touch, place 10 tiles by tapping,
-tap a tile, then open the info sheet, undo, and reload. Then load a night world made in the page
-(seed 1000) and tap its biggest town and a data centre. Pass = 10 placements land and change the
+tap a tile, then open the info sheet, undo, and reload. Then load a day world and a night world made in the page
+(seed 1000), photograph the biggest town's art in each, and tap the night town and a data centre. Pass = 10 placements land and change the
 score, the tile tap opens the inspector, undo and reload work, no sideways overflow, a non-blank
 canvas, the night world's town and data centre light up with their food and cooling, the explainer
 describes roads, settling wild land and doors, and zero console errors.
@@ -14,6 +14,36 @@ from playwright.async_api import async_playwright
 import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 URL = (ROOT / 'docs/index.html').as_uri()
+TOWN_SHOT = '''() => { // centre the camera on the biggest named town; report the art tiers its tiles got
+  const st = __numo.state, v = window.Sim.view(st), big = v.labels.slice().sort((a, b) => b.size - a.size)[0];
+  if (!big) return null;
+  const h = __numo.hexCenter(big.q, big.r), cam = __numo.cam; cam.x = h[0]; cam.y = h[1] - 0.5; cam.s = 46; __numo.ui.dirty = true;
+  const tiers = [...__numo.townArt.values()].map(a => a.ti);
+  return { name: big.name, size: big.size, buildings: __numo.townBuildings, top_art_tier: Math.max(0, ...tiers) };
+}'''
+async def day_town(page):
+    """A day world made in the page with the real rules (seed 1000, 112 greedy placements, before nightfall), centred on
+    its biggest town for a screenshot of the town art. Its heart should draw as a megacity (art tier 5)."""
+    made = await page.evaluate('''() => {
+      const S = window.Sim, st = S.newGame(1000);
+      for (let t = 0; t < 112; t++) {
+        while (st.choices > 0) S.choose(st, t % 2 ? 'x' : 'r');
+        let best = null;
+        for (let i = 0; i < st.offers.length; i++) for (const [q, r] of S.frontier(st)) for (let k = 0; k < 6; k++) {
+          const e = S.evalPlacement(st, S.rot(st.offers[i], k), q, r), sc = e.m * 10 + e.n;
+          if (!best || sc > best.sc) best = { sc, i, q, r, k };
+        }
+        S.place(st, { from: 'offer', i: best.i }, best.q, best.r, best.k);
+      }
+      localStorage.setItem('numogarden-v1', JSON.stringify({ state: st, cam: { x: 0, y: 0, s: 46 } }));
+      return { turn: st.turn, level: st.level };
+    }''')
+    await page.reload(); await page.wait_for_timeout(900)
+    town = await page.evaluate(TOWN_SHOT); await page.wait_for_timeout(300)
+    await page.screenshot(path=str(ROOT / 'results/phone-check-town-day.png'))
+    res = dict(made, town=town)
+    res['ok'] = bool(town and town['buildings'] > 0 and town['top_art_tier'] >= 4 and made['level'] < 4)
+    return res
 async def night_world(page):
     """A night world made in the page with the real rules (seed 1000, greedy play until data centres have arrived),
     to check the tapped-town highlight: tapping the biggest town names its food, closing the sheet leaves the town lit
@@ -34,6 +64,8 @@ async def night_world(page):
       return { turn: st.turn, level: st.level, dcSince: st.dcSince, roads: v.roads.filter(r => !r.overgrown).length, roadsFeeding: v.roads.filter(r => r.flow).length };
     }''')
     await page.reload(); await page.wait_for_timeout(900)
+    town = await page.evaluate(TOWN_SHOT); await page.wait_for_timeout(300)
+    await page.screenshot(path=str(ROOT / 'results/phone-check-town-night.png'))
     # the wedge to tap: the biggest named town's, or a data centre's; the camera moves there and the tap lands on the wedge
     aim = '''(T) => {
       const st = __numo.state, v = window.Sim.view(st), a = Math.PI / 3;
@@ -47,7 +79,7 @@ async def night_world(page):
       const r = document.getElementById('board').getBoundingClientRect();
       return { x: r.left + s[0], y: r.top + s[1], size: best.size };
     }'''
-    res = dict(made)
+    res = dict(made, town=town)
     for T, word in (('H', 'food'), ('D', 'cool')):
         pt = await page.evaluate(aim, T)
         if not pt: res[T] = 'none found'; continue
@@ -151,13 +183,14 @@ async def main():
         # reload: the world should come back from storage
         await page.reload(); await page.wait_for_timeout(800)
         reloaded = await page.evaluate('__numo.state.turn')
+        day = await day_town(page)
         night = await night_world(page)
         ok = (placed == 10 and after['turn'] - before['turn'] == 10 and after['stars'] > before['stars']
               and undone == after['turn'] - 1 and reloaded == undone and overflow <= 0 and distinct > 50 and inspector
-              and night['ok'] and not errors)
+              and day['ok'] and night['ok'] and not errors)
         print('PHONE CHECK:', 'PASS' if ok else 'FAIL')
         print(json.dumps({'before': before, 'after': after, 'placed': placed, 'inspector_opens': inspector, 'turn_after_undo': undone, 'turn_after_reload': reloaded,
-                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'night_world': night, 'errors': errors}, indent=1))
+                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'day_town': day, 'night_world': night, 'errors': errors}, indent=1))
         await b.close()
         return ok
 sys.exit(0 if asyncio.run(main()) else 1)

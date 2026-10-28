@@ -1,4 +1,4 @@
-"""Build the page from src/ and data/.
+"""Build the page from src/ (game.html with sim.js and art.js inlined) and data/.
 
   artifact/numogarden.html  page body for a claude.ai artifact (the publisher adds the doctype, head and viewport)
   docs/index.html           the same page as a complete standalone document, for GitHub Pages and the phone check
@@ -9,11 +9,12 @@ import json, pathlib
 root = pathlib.Path(__file__).parent
 html = (root / 'src/game.html').read_text(encoding='utf8')
 sim = (root / 'src/sim.js').read_text(encoding='utf8')
+art = (root / 'src/art.js').read_text(encoding='utf8')
 lore = json.loads((root / 'data/lore.json').read_text(encoding='utf8'))
-assert '/*@@SIM@@*/' in html and '/*@@LORE@@*/[]' in html, 'placeholders missing from src/game.html'
-assert '</script' not in sim, 'sim.js must not contain a closing script tag'
+assert '/*@@SIM@@*/' in html and '/*@@ART@@*/' in html and '/*@@LORE@@*/[]' in html, 'placeholders missing from src/game.html'
+assert '</script' not in sim and '</script' not in art, 'sim.js and art.js must not contain a closing script tag'
 assert len(lore) == 45, 'lore.json should hold 45 demon descriptions'
-body = html.replace('/*@@SIM@@*/', sim).replace('/*@@LORE@@*/[]', json.dumps(lore, ensure_ascii=False))
+body = html.replace('/*@@SIM@@*/', sim).replace('/*@@ART@@*/', art).replace('/*@@LORE@@*/[]', json.dumps(lore, ensure_ascii=False))
 (root / 'artifact').mkdir(exist_ok=True); (root / 'docs').mkdir(exist_ok=True)
 (root / 'artifact/numogarden.html').write_text(body, encoding='utf8')
 # Same minimal skeleton the claude.ai publisher wraps around an artifact, so the page behaves the same in both places.
