@@ -76,7 +76,7 @@ button:focus-visible { outline: 2px solid var(--plex); outline-offset: 2px; }
 }
 .toast.out { opacity: 0; transform: translateY(-6px); }
 .toast.lemur, .toast.rumor, .toast.faded, .toast.dc, .toast.absorb, .toast.dream { border-left-color: var(--warp); }
-.toast.level, .toast.reward, .toast.metro, .toast.spawn { border-left-color: var(--plex); }
+.toast.level, .toast.reward, .toast.metro, .toast.spawn, .toast.door { border-left-color: var(--plex); }
 .toast.lost, .toast.hungry, .toast.jungle { border-left-color: #3B8558; }
 .toast.sea { border-left-color: #3E9CC0; }
 @keyframes pop { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
@@ -469,14 +469,43 @@ function ghostEval() {
     const hi = Math.max(z, nz), name = S.CURRENTS[2 * hi - 9];
     if (!opens.some(o => o.name === name)) opens.push({ name, hi, lo: 9 - hi });
   }
-  return { st, w, e, z, opens, onWild, settles: spots.length };
+  return { st, w, e, z, opens, onWild, settles: spots.length, doors: doorEffects(st, z, settledZ) };
+}
+// doors this placement would open, close or grow, judged by the zone 9 tiles beside each clump before and after it
+function doorEffects(st, z, settledZ) {
+  const out = [];
+  if (!S.CFG.DOORS || state.level < 1 || st.kind === 'r' || !(view.doors || []).length) return out;
+  const gq = ui.ghost.q, gr = ui.ghost.r, gk = S.key(gq, gr);
+  const touches = d => d.ids.some(id => idMap[id] && S.hexDist(idMap[id].q, idMap[id].r, gq, gr) === 1);
+  if (st.kind === 'x') {
+    const near = view.doors.filter(touches);
+    if (near.length) out.push(`makes the ${S.ORDINAL[Math.min(9, 1 + near.reduce((a, d) => a + d.ids.length, 0))]} door`);
+    return out;
+  }
+  for (const d of view.doors) {
+    const ring = new Map();
+    for (const id of d.ids) {
+      const t = idMap[id]; if (!t) continue;
+      for (const [dq, dr] of S.DIRS) { const k = S.key(t.q + dq, t.r + dr), nb = state.map[k]; if (nb && nb.kind === 'n') ring.set(k, nb); }
+    }
+    const near = touches(d);
+    if (!near && ![...ring.values()].some(t => settledZ.has(t.id))) continue;
+    let before = 0, after = near && z === 9 ? 1 : 0; // the new tile, which replaces any wild ground under it
+    for (const [k, t] of ring) {
+      if (t.z === 9) before++;
+      if (k !== gk && (settledZ.has(t.id) ? settledZ.get(t.id) : t.z) === 9) after++;
+    }
+    if (before < d.n && after >= d.n) out.push(`opens the ${S.ORDINAL[d.n]} door`);
+    else if (before >= d.n && after < d.n) out.push(`closes the ${S.ORDINAL[d.n]} door`);
+  }
+  return out;
 }
 function updateHint() {
   let txt;
   if (ui.mode === 'builder') txt = ui.clearKey ? 'Tap Clear tile to remove it. You can build on the empty spot.' : 'Builder: tap any tile to clear it.';
   else if (ui.focus) txt = focusHint(ui.focus) + ' Tap the map to clear.'; // until the next tap, the town just inspected
   else if (ui.ghost) {
-    const { st, e, opens, onWild, settles } = ghostEval();
+    const { st, e, opens, onWild, settles, doors } = ghostEval();
     if (st.kind === 'r') txt = `A rumor. It becomes real once ${S.CFG.RUMOR_NEED} neighbours agree with its edges.`;
     else {
       const clean = e.n >= 2 && e.m === e.n;
@@ -485,6 +514,7 @@ function updateHint() {
       if (onWild) txt += settles ? ` · builds on wild land and settles ${plural(settles, 'more wild wedge')}` : ' · builds on wild land';
       else if (settles) txt += ` · settles ${plural(settles, 'wild wedge')}`;
       if (opens.length && state.level >= 1) txt += ' · opens ' + opens.map(o => `a ${o.name} current (${o.hi}::${o.lo})`).join(' and ');
+      if (doors.length) txt += ' · ' + doors.join(' · ');
       if (st.kind !== 'x') txt += '. Tap the tile to turn it.';
       if (st.w.includes('D')) txt += ' Data centres need sea next to them.';
     }
@@ -498,6 +528,7 @@ function showEvents(evs, at) {
   let shown = 0;
   for (const e of evs) {
     if (e.quiet) { if (at) floater(at[0], at[1] + 0.05, 'current +3★', '#C23B5A'); continue; }
+    if (e.calm) continue; // the chronicle has it
     if (shown++ < 2) toast(e);
   }
 }
@@ -666,6 +697,11 @@ function currentNow(name, ids) {
   if (name === 'Sink') return any((t, w) => w === 'H' || w === 'F') ? '' : ' No hamlets or fields are in its reach right now.';
   return '';
 }
+function doorLine(d) {
+  const ord = S.ORDINAL[d.n];
+  return d.open ? `The ${ord} door. Open: ${plural(d.currents, 'Plex current')} ${d.currents === 1 ? 'runs' : 'run'} from it, ${d.n} needed.`
+    : `The ${ord} door. Closed: ${d.currents} of the ${plural(d.n, 'Plex current')} it needs.`;
+}
 function openInspector(tl, wi) {
   const L = state.level, z = tl.z, reg = S.region(z);
   const counts = {}; for (const c of tl.w) counts[c] = (counts[c] || 0) + 1;
@@ -698,6 +734,8 @@ function openInspector(tl, wi) {
     for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
     lines += `<p>${tl.dream ? (tl.w.includes('D') ? 'A data centre dreamed this. The sides touching the machine are data centre, so they already agree. ' : 'A data centre dreamed this. ') : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
   }
+  const door = tl.kind === 'x' ? (view.doors || []).find(d => d.ids.includes(tl.id)) : null;
+  if (door) lines += `<p>${doorLine(door)}</p>${door.open ? '' : '<p class="note">A zone 9 tile beside it starts a Plex current: a whole field tile, or a tile gone all wild.</p>'}`;
   if (L >= 1) {
     const phrase = tl.w.join('');
     lines += tl.kind === 'x'
@@ -736,6 +774,7 @@ function openLemur(l) {
     <h2 class="lname">${esc(name)}</h2>
     <p>${esc(LORE[l.d] || '')}</p>
     <p class="readout">AQ ${esc(name)} = ${aq} → zone ${z}${home ? ' · its name comes home' : ''}</p>
+    ${l.door ? `<p class="note">It came through the ${S.ORDINAL[l.door]} door.</p>` : ''}
     <p class="note">Arrived at placement ${l.born}. Visitors wander near where they arrived and leave when newer ones crowd in.</p>
     <p class="note">Name, zone pair and description from <a href="https://claude.ai/artifact/1u4CmPQFRszxxz2beVf3Ae" target="_blank" rel="noopener">Numogram Lab</a>.</p>
     <button type="button" class="btn sheet-close" id="closeS">Close</button>`);
@@ -797,6 +836,7 @@ function openInfo() {
         <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
+        ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>` : ''}
       </ul>
     </details>` : ''}
     ${state.level >= 4 ? `<details>
@@ -817,6 +857,7 @@ function openInfo() {
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null ? ' Dreams are ghosts with drifting lines.' : ''}</li>
         ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
+        ${(view.doors || []).some(d => d.open) || state.stats.doors ? '<li>An open door glows crimson.</li>' : ''}
         ${(view.roads || []).length || state.stats.roads ? `<li>A road starts as a dashed path and wears into a sandy road. Dots moving along it carry food to a hungry town. A green dashed road is overgrown.${state.level >= 4 ? ' At night old roads are lit.' : ''}</li>` : ''}
         <li>Labels show how many wedges a town's fields, sea and roads can feed, or a data centre's sea can cool, against how many it has.</li>
         <li>Tap a town or data centre to light it up. Dots mark what feeds or cools it, and outlines mark its fading wedges. Red ones border a big jungle that can take them.</li>
@@ -1222,6 +1263,26 @@ function drawValid(over) {
     ctx.setLineDash([5 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
 }
+function drawDoors(t) { // an open door glows crimson and its edge pulses, over the dark at night
+  for (const d of view.doors || []) {
+    if (!d.open) continue;
+    const a = RM ? 0.35 : 0.28 + 0.12 * Math.sin(t * 1.6 + d.key), ids = new Set(d.ids);
+    for (const id of d.ids) {
+      const tl = idMap[id]; if (!tl) continue;
+      const c = hexCenter(tl.q, tl.r); setT(c[0], c[1]);
+      const g = ctx.createRadialGradient(0, 0, 0.1, 0, 0, 1);
+      g.addColorStop(0, `rgba(194,59,90,${a})`); g.addColorStop(1, 'rgba(194,59,90,0)');
+      hexPath(1); ctx.fillStyle = g; ctx.fill();
+      ctx.lineWidth = 3.2 / cam.s; ctx.strokeStyle = `rgba(194,59,90,${a + 0.45})`; ctx.beginPath();
+      for (let i = 0; i < 6; i++) { // only the clump's outer edges, so a door reads as one shape
+        const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
+        if (nb && ids.has(nb.id)) continue;
+        const A = CORN[i], B = CORN[(i + 1) % 6]; ctx.moveTo(A[0] * 0.97, A[1] * 0.97); ctx.lineTo(B[0] * 0.97, B[1] * 0.97);
+      }
+      ctx.stroke();
+    }
+  }
+}
 function drawSettle(now) { // wild wedges that just took form fade out of their wild colours
   const s = ui.settle; if (!s) return;
   const a = 1 - (now - s.at) / 900;
@@ -1375,6 +1436,7 @@ function draw(now) {
   if (state.level >= 1) drawCurrentTint();
   drawRoads(t, false);
   if (state.level >= 4) { drawNight(t); drawRoads(t, true); }
+  drawDoors(t);
   drawSettle(now);
   if (state.level >= 1) drawCurrents(t);
   if (ui.focus) drawFocus(t);
@@ -1515,7 +1577,7 @@ function start(data) {
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ state: JSON.stringify(state), cam })); } catch (e) { /* not in a viewer */ }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderTray(); ui.dirty = true; });
   requestAnimationFrame(loop);
-  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter };
+  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter, updateHint };
 }
 if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
 else start((window.claude && window.claude.hot && window.claude.hot.data) || {});

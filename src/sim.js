@@ -53,6 +53,8 @@ const CFG = {
   SPEND: true,          // wild land can be settled: each wild wedge a placed tile touches takes the terrain it faces,
                         //   and a fully wild tile is open ground for an ordinary tile
                         //   (false = wild land never changes back, which replays the rules before settling)
+  DOORS: true,          // a clump of n whole Plex tiles is the nth door (up to 9), open while n Plex currents run from it;
+                        //   the first time it opens that far, its demon (n::0) comes through (false = no doors)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -235,18 +237,22 @@ function pushEvent(state, ev, kind, txt, extra) {
   if (state.events.length > 80) state.events.splice(0, state.events.length - 80);
 }
 
-function spawnLemur(state, d, k, ev, why) {
+function spawnLemur(state, d, k, ev, why, door) {
   if (state.level < 1) return;
   const [a, b, name] = DEMONS[d];
-  state.lemurs.push({ d, k, born: state.turn, s: rint(state.rng, 1e9) });
+  const l = { d, k, born: state.turn, s: rint(state.rng, 1e9) };
+  if (why === 'door') l.door = door;
+  state.lemurs.push(l);
   if (state.lemurs.length > CFG.LEMUR_MAX) state.lemurs.shift();
   state.stats.lemurs++;
   const pair = a + '::' + b;
   const msg = why === 'syzygy' ? `${name} (${pair}) slips through a syzygy to look around.`
     : why === 'rumor' ? `${name} (${pair}) moved into the rumor that came true.`
     : why === 'jungle' ? `${name} (${pair}) has been living in the deep jungle all along.`
+    : why === 'door' ? `The ${ORDINAL[door]} door is open. ${name} looks through.`
     : `${name} (${pair}) wanders in, curious.`;
-  pushEvent(state, ev, 'lemur', msg, { d });
+  // the first two doors go to the chronicle only; from the third a toast says so too
+  pushEvent(state, ev, why === 'door' ? 'door' : 'lemur', msg, why === 'door' ? { d, calm: door < 3 } : { d });
 }
 
 function grant(state, item, ev) {
@@ -376,6 +382,7 @@ function step(state, ev) {
   tagAndTier(state, C, ev);
   updateCurrents(state);
   rules(state, C, ev);
+  doors(state, ev);
   rumors(state, ev);
   levelUp(state, ev);
   nightDeck(state, ev);
@@ -978,6 +985,54 @@ function rules(state, C, ev) {
   }
 }
 
+/* doors: a clump of whole Plex tiles joined edge to edge. A clump of n is the nth door (n up to 9), open while
+   n Plex currents run from it, counted by the zone-9 tiles at their other end (a fully wild tile reads 9 too).
+   A door is known by its smallest tile id; when clumps join, the joined door keeps the best of their records. */
+const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth'];
+function doorClumps(state) {
+  const via = {};
+  for (const c of state.currents || []) {
+    if (c.name !== 'Plex') continue;
+    const x = c.top === c.a ? c.b : c.a; // the zone-0 end is the Plex tile
+    (via[x] || (via[x] = new Set())).add(c.top);
+  }
+  const seen = new Set(), out = [];
+  for (const k0 in state.map) {
+    const x0 = state.map[k0];
+    if (x0.kind !== 'x' || seen.has(x0.id)) continue;
+    const ids = [], ends = new Set(), q = [x0];
+    let first = x0; seen.add(x0.id);
+    while (q.length) {
+      const c = q.pop(); ids.push(c.id);
+      if (c.id < first.id) first = c;
+      if (via[c.id]) for (const e of via[c.id]) ends.add(e);
+      for (const d of DIRS) { const nb = state.map[key(c.q + d[0], c.r + d[1])]; if (nb && nb.kind === 'x' && !seen.has(nb.id)) { seen.add(nb.id); q.push(nb); } }
+    }
+    const n = Math.min(9, ids.length);
+    out.push({ key: first.id, at: key(first.q, first.r), ids, n, currents: ends.size, open: ends.size >= n });
+  }
+  return out;
+}
+function doors(state, ev) {
+  if (!CFG.DOORS || state.level < 1) return;
+  const old = state.doors || {}, next = {};
+  for (const d of doorClumps(state)) {
+    let best = 0;
+    for (const id of d.ids) if (old[id]) best = Math.max(best, old[id].best);
+    const rec = next[d.key] = { n: d.n, open: d.open, best };
+    if (!d.open || d.n <= best) continue;
+    rec.best = d.n;
+    state.stats.doors = (state.stats.doors || 0) + 1;
+    const at = state.stats.doorAt || (state.stats.doorAt = {});
+    if (at[d.n] == null) at[d.n] = state.turn;
+    // its demon comes through unless it is already here; the first two doors are common, so they are noted only then
+    const dm = mesh(d.n, 0);
+    if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, d.at, ev, 'door', d.n);
+    else if (d.n >= 3) pushEvent(state, ev, 'door', `The ${ORDINAL[d.n]} door is open.`);
+  }
+  state.doors = next;
+}
+
 function rumors(state, ev) {
   for (const k of Object.keys(state.map)) {
     const t = state.map[k];
@@ -1144,7 +1199,10 @@ function view(state) {
     const r = state.roads[k], f = flows.find(f => (f.from.tag === r.a && f.to.tag === r.b) || (f.from.tag === r.b && f.to.tag === r.a));
     roads.push({ a: r.a, b: r.b, an: r.an, bn: r.bn, ends: r.ends, age: state.turn - r.since, overgrown: r.seen !== state.turn, flow: f ? { n: f.n, toB: f.to.tag === r.b } : null });
   }
-  return { info, labels, dlabels, seas, roads };
+  // doors with the Plex currents running from them, and how far each has opened before
+  const doorList = CFG.DOORS && state.level >= 1 ? doorClumps(state) : [];
+  for (const d of doorList) d.best = Math.max(0, ...d.ids.map(id => state.doors && state.doors[id] ? state.doors[id].best : 0));
+  return { info, labels, dlabels, seas, roads, doors: doorList };
 }
 
 function shares(state) {
@@ -1156,7 +1214,7 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround,
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround, doorClumps, ORDINAL,
   syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
