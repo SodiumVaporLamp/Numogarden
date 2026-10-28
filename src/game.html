@@ -244,8 +244,8 @@ const ROOFS = ['#E0705A', '#5E8FB0', '#D9A13B', '#C9607A'];
 const STORE = 'numogarden-v1';
 /* settings belong to the device, not the world, so they live apart from the save and survive New world */
 const PREFS = 'numogarden-prefs';
-const prefs = { cleanFits: false, oldTowns: false }; // oldTowns: today's houses instead of the town art (no switch in the page yet)
-try { const p = JSON.parse(localStorage.getItem(PREFS) || 'null'); if (p && typeof p.cleanFits === 'boolean') prefs.cleanFits = p.cleanFits; if (p && typeof p.oldTowns === 'boolean') prefs.oldTowns = p.oldTowns; } catch (e) { /* storage may be unavailable */ }
+const prefs = { cleanFits: false };
+try { const p = JSON.parse(localStorage.getItem(PREFS) || 'null'); if (p && typeof p.cleanFits === 'boolean') prefs.cleanFits = p.cleanFits; } catch (e) { /* storage may be unavailable */ }
 function savePrefs() { try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) { /* storage may be unavailable */ } }
 
 const $ = id => document.getElementById(id);
@@ -324,7 +324,6 @@ function refresh() {
    takes the art of the town that owns most of its town wedges. Planned when the map changes; drawing only reads it. */
 function planTowns() {
   townArt = new Map(); townList = [];
-  if (prefs.oldTowns) return;
   const towns = new Map(), own = [];
   for (const k in state.map) {
     const tl = state.map[k]; if (tl.kind === 'r') continue;
@@ -949,59 +948,19 @@ function wedgeColor(c, inf, i, t) {
 function groundColor() { return state.level >= 4 ? '#2D2946' : state.level >= 3 ? '#CDC9DE' : '#D9E5DE'; }
 
 const SPOTS3 = [[0.52, 0.2], [0.2, 0.52], [0.36, 0.36], [0.6, 0.12], [0.12, 0.6]];
-function houseSpots(tl, i, n) {
-  const out = [];
-  for (let k = 0; k < n; k++) {
-    const sp = SPOTS3[(k + Math.floor(hh(tl.id, i * 7) * 3)) % (n === 1 ? 3 : 5)];
-    const j = (hh(tl.id, i * 13 + k) - 0.5) * 0.08;
-    out.push(wpt(i, sp[0] + j, sp[1] - j));
+/* a rumor ghost's cottage, one per hamlet wedge; towns draw through the town art (drawBuildings) */
+function drawHamlet(tl, i, t, L, nightPass) {
+  const base = ctx.globalAlpha, [x, y] = wpt(i, 0.36, 0.36), seed = hh(tl.id, i * 5), bw = 0.2, bh = bw * 0.72;
+  if (!nightPass) {
+    ctx.fillStyle = '#FFF7EC'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
+    ctx.fillStyle = L >= 2 && seed > 0.8 ? '#8A6FD1' : ROOFS[Math.floor(seed * 4) % 4];
+    ctx.beginPath(); ctx.moveTo(x - bw * 0.62, y - bh / 2 + 0.004); ctx.lineTo(x, y - bh / 2 - bw * 0.48); ctx.lineTo(x + bw * 0.62, y - bh / 2 + 0.004); ctx.closePath(); ctx.fill();
   }
-  if (n === 1) out[0] = wpt(i, 0.36, 0.36);
-  return out;
-}
-function drawHamlet(tl, i, inf, t, L, nightPass) {
-  const base = ctx.globalAlpha;
-  const tier = inf ? inf.tier : 0;
-  const n = tier <= 1 ? 1 : tier === 2 ? 2 : 3;
-  const sz = tier <= 1 ? 0.2 : tier === 2 ? 0.17 : 0.15;
-  const tower = tier >= 4;
-  const pts = houseSpots(tl, i, n);
-  for (let k = 0; k < pts.length; k++) {
-    const [x, y] = pts[k], seed = hh(tl.id, i * 5 + k);
-    const bw = sz, bh = tower ? sz * 1.45 : sz * 0.72;
-    const eye = L >= 3 && tier >= 2 && seed < 0.55;
-    if (!nightPass) {
-      ctx.fillStyle = '#FFF7EC'; ctx.fillRect(x - bw / 2, y - bh / 2, bw, bh);
-      ctx.fillStyle = L >= 2 && seed > 0.8 ? '#8A6FD1' : ROOFS[Math.floor(seed * 4) % 4];
-      ctx.beginPath(); ctx.moveTo(x - bw * 0.62, y - bh / 2 + 0.004); ctx.lineTo(x, y - bh / 2 - bw * 0.48); ctx.lineTo(x + bw * 0.62, y - bh / 2 + 0.004); ctx.closePath(); ctx.fill();
-      if (L >= 2 && tier >= 3 && seed < 0.7) {
-        const ty = y - bh / 2 - bw * 0.48;
-        ctx.strokeStyle = '#3A4A50'; ctx.lineWidth = 0.014; ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x, ty - bw * 0.6); ctx.stroke();
-        ctx.fillStyle = Math.sin((RM ? 0 : t) * 4 + seed * 20) > 0 ? '#FF5A6E' : '#8A2E40';
-        ctx.beginPath(); ctx.arc(x, ty - bw * 0.64, 0.022, 0, 7); ctx.fill();
-      }
-    }
-    if (eye) {
-      const ex = x, ey = y + bh * 0.04;
-      if (nightPass) ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(ex, ey, bw * 0.27, bw * 0.19, 0, 0, 7); ctx.fill();
-      const c = hexCenter(tl.q, tl.r);
-      let dx = ui.pointerW[0] - (c[0] + ex), dy = ui.pointerW[1] - (c[1] + ey); const dl = Math.hypot(dx, dy) || 1;
-      dx /= dl; dy /= dl;
-      const blink = !RM && Math.sin(t * 0.9 + seed * 40) > 0.985;
-      ctx.fillStyle = '#1E2230';
-      if (blink) ctx.fillRect(ex - bw * 0.24, ey - 0.006, bw * 0.48, 0.012);
-      else { ctx.beginPath(); ctx.arc(ex + dx * bw * 0.11, ey + dy * bw * 0.07, bw * 0.1, 0, 7); ctx.fill(); }
-      if (nightPass) ctx.globalCompositeOperation = 'lighter';
-    } else {
-      const flick = L >= 1 && seed < 0.3 && !RM ? 0.55 + 0.45 * Math.sin(t * 3 + seed * 30) : 1;
-      ctx.globalAlpha = base * flick * (nightPass ? 1 : 0.95);
-      ctx.fillStyle = nightPass ? '#B8FFF6' : '#7FE6DA';
-      if (tower) { ctx.fillRect(x - bw * 0.2, y - bh * 0.3, bw * 0.14, bw * 0.14); ctx.fillRect(x + bw * 0.06, y - bh * 0.3, bw * 0.14, bw * 0.14); ctx.fillRect(x - bw * 0.07, y + bh * 0.05, bw * 0.14, bw * 0.14); }
-      else ctx.fillRect(x - bw * 0.13, y - bh * 0.12, bw * 0.26, bw * 0.26);
-      ctx.globalAlpha = base;
-    }
-  }
+  const flick = L >= 1 && seed < 0.3 && !RM ? 0.55 + 0.45 * Math.sin(t * 3 + seed * 30) : 1;
+  ctx.globalAlpha = base * flick * (nightPass ? 1 : 0.95);
+  ctx.fillStyle = nightPass ? '#B8FFF6' : '#7FE6DA';
+  ctx.fillRect(x - bw * 0.13, y - bh * 0.12, bw * 0.26, bw * 0.26);
+  ctx.globalAlpha = base;
 }
 function drawField(tl, i, L) {
   const A = CORN[i], B = CORN[(i + 1) % 6];
@@ -1111,7 +1070,7 @@ function drawTiles(t) {
     const art = townArt.get(tl.id); // a town tile's buildings come later, in drawBuildings(); its ground is drawn here
     if (detail) for (let i = 0; i < 6; i++) {
       const w = tl.w[i];
-      if (w === 'H') { if (!art) drawHamlet(tl, i, info[i], t, L, false); }
+      if (w === 'H') { if (!art) drawHamlet(tl, i, t, L, false); }
       else if (w === 'F') drawField(tl, i, L);
       else if (w === 'J') drawJungle(tl, i, info[i], t, L);
       else if (w === 'S') drawSea(tl, i, info[i], t, L);
@@ -1147,7 +1106,7 @@ function drawNight(t) {
     setT(c[0], c[1]);
     const info = view.info[tl.id] || [];
     for (let i = 0; i < 6; i++) {
-      if (tl.w[i] === 'H') { if (!townArt.has(tl.id)) drawHamlet(tl, i, info[i], t, state.level, true); }
+      if (tl.w[i] === 'H') { if (!townArt.has(tl.id)) drawHamlet(tl, i, t, state.level, true); }
       else if (tl.w[i] === 'D') drawDataCentre(tl, i, info[i], t, true);
     }
   }

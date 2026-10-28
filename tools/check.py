@@ -42,7 +42,7 @@ async def day_town(page):
     town = await page.evaluate(TOWN_SHOT); await page.wait_for_timeout(300)
     await page.screenshot(path=str(ROOT / 'results/phone-check-town-day.png'))
     res = dict(made, town=town)
-    res['ok'] = bool(town and town['buildings'] > 0 and town['top_art_tier'] >= 4 and made['level'] < 4)
+    res['ok'] = bool(town and town['buildings'] > 0 and town['top_art_tier'] >= 5 and made['level'] < 4)
     return res
 async def night_world(page):
     """A night world made in the page with the real rules (seed 1000, greedy play until data centres have arrived),
