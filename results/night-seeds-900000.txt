@@ -8,10 +8,10 @@ hamlet wedges absorbed per run (median): 95.5
 dreams per run (median): laid 160.5, came true 62
 dream ghosts on the map once data centres arrive: mean 3.9, max 14
 roads per run (median): built 6, town-steps a road kept fed 281.5; standing at once: mean 2.4, max 13
-doors: openings per run (median) 22; first opened (runs @ median placement) 1:50@47.5 2:28@298.5 4:2@303.5
+doors: openings per run (median) 22, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@47.5 2:28@298.5 4:2@303.5
 wild land per run (median): settled 39 wedges, Plex tiles given 25, turned into stars 7, perfect fits 13
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
 NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.4% in 5..30%, towns kept 50>=45, dreams come true 62>=5, X>=10% in 0 runs, errors 0]
 
-(145.0s)
+(115.6s)

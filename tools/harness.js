@@ -79,7 +79,7 @@ for (const bot of ['greedy', 'zone', 'random']) {
   const avg0 = k => (R.reduce((a, r) => a + (r.st[k] || 0), 0) / R.length).toFixed(1);
   const lv = n => median(R.map(r => r.st.levelAt && r.st.levelAt[n] != null ? r.st.levelAt[n] : Infinity));
   const doorRow = R => [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => { const ts = R.map(r => r.st.doorAt && r.st.doorAt[n]).filter(x => x != null); return ts.length ? `${n}:${ts.length}@${median(ts)}` : ''; }).filter(Boolean).join(' ');
-  if (R.some(r => r.st.doors)) console.log(`doors, mean per run: openings ${avg0('doors')};  first opened (runs @ median placement) ${doorRow(R)}`);
+  if (R.some(r => r.st.doors)) console.log(`doors, mean per run: openings ${avg0('doors')}  door dreams laid ${avg0('doorDreams')}, came true ${avg0('doorDreamsReal')}, faded ${avg0('doorDreamsFaded')};  first opened (runs @ median placement) ${doorRow(R)}`);
   if (R.some(r => r.st.settled)) console.log(`wild land, mean per run: settled ${avg0('settled')} wedges  Plex tiles given ${avg0('plexGiven')}  turned into stars ${avg0('plexStars')};  weirdness arrives (median placement) ${[1, 2, 3, 4].map(n => n + ':' + lv(n)).join(' ')}`);
   console.log(`mean stars ${(R.reduce((a, r) => a + r.stars, 0) / R.length).toFixed(0)}  level dist ${JSON.stringify(R.reduce((a, r) => (a[r.level] = (a[r.level] || 0) + 1, a), {}))}  towns ${(R.reduce((a, r) => a + r.towns, 0) / R.length).toFixed(1)}  largest town (mean) ${(R.reduce((a, r) => a + r.maxH, 0) / R.length).toFixed(1)}  tiles ${(R.reduce((a, r) => a + r.tiles, 0) / R.length).toFixed(0)}`);
   for (let T = 100; T <= TURNS; T += 100) {

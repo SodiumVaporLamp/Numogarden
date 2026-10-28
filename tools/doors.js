@@ -34,6 +34,7 @@ for (const [bot, move] of [['greedy', greedyMove], ['door', doorMove]]) {
   }
   console.log(`doors that opened (games, median placement first open): ${row.join('  ') || 'none'}`);
   console.log(`at the end (median): clumps ${median(R.map(r => r.clumps))}, biggest clump ${median(R.map(r => r.biggest))}, doors open ${median(R.map(r => r.open))}, wild land ${(100 * median(R.map(r => r.x))).toFixed(1)}%`);
+  console.log(`door dreams per run (median): laid ${stat('doorDreams')}, came true ${stat('doorDreamsReal')}, faded ${stat('doorDreamsFaded')}; in games where the third door opened: laid ${median(R.filter(r => r.st.doorAt && r.st.doorAt[3] != null).map(r => r.st.doorDreams || 0))}, came true ${median(R.filter(r => r.st.doorAt && r.st.doorAt[3] != null).map(r => r.st.doorDreamsReal || 0))}`);
   console.log(`per run (median): door openings ${stat('doors')}, wild wedges settled ${stat('settled')}, perfect fits ${stat('perfect')}, Plex tiles given ${stat('plexGiven')}, turned into stars ${stat('plexStars')}, stars ${median(R.map(r => r.stars))}`);
   const errs = R.filter(r => r.err);
   console.log(`errors: ${errs.length}${errs.length ? '\n' + errs[0].err : ''}`);

@@ -272,6 +272,10 @@ const CFG = {
                         //   (false = wild land never changes back, which replays the rules before settling)
   DOORS: true,          // a clump of n whole Plex tiles is the nth door (up to 9), open while n Plex currents run from it;
                         //   the first time it opens that far, its demon (n::0) comes through (false = no doors)
+  DOOR_BASE: 12,        //   an open door of 3 or more dreams every DOOR_BASE - n placements, with DOOR_DREAM_MAX out,
+  DOOR_DREAM_MAX: 2,    //   tiles of its own zone from the day deck (DOOR_TRIES draws at most), laid at its mouth;
+  DOOR_TRIES: 100,      //   a door's dream comes true with DOOR_NEED believers that aren't wild, for DOOR_STARS,
+  DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -634,6 +638,12 @@ function commitPending(state, ev) {
   }
   for (const s of state.spawns) {
     if (state.map[s.k]) continue;
+    if (s.door) { // a door's dream, laid at its mouth
+      addTile(state, s.q, s.r, s.w, 'r', { door: s.door, doorOf: s.doorOf });
+      state.stats.doorDreams = (state.stats.doorDreams || 0) + 1;
+      if (state.stats.doorDreams === 1) pushEvent(state, ev, 'dream', `The ${ORDINAL[s.door]} door has started to dream. A door's dream comes true once ${CFG.DOOR_NEED} neighbours agree with it, not counting wild land.`, { k: s.k });
+      continue;
+    }
     if (s.dream) {
       // the machine believes its own dream: every side of it that faces a data centre is data centre
       const w = s.w.slice();
@@ -1217,49 +1227,98 @@ function doorClumps(state) {
   for (const k0 in state.map) {
     const x0 = state.map[k0];
     if (x0.kind !== 'x' || seen.has(x0.id)) continue;
-    const ids = [], ends = new Set(), q = [x0];
+    const tiles = [], ends = new Set(), q = [x0];
     let first = x0; seen.add(x0.id);
     while (q.length) {
-      const c = q.pop(); ids.push(c.id);
+      const c = q.pop(); tiles.push(c);
       if (c.id < first.id) first = c;
       if (via[c.id]) for (const e of via[c.id]) ends.add(e);
       for (const d of DIRS) { const nb = state.map[key(c.q + d[0], c.r + d[1])]; if (nb && nb.kind === 'x' && !seen.has(nb.id)) { seen.add(nb.id); q.push(nb); } }
     }
-    const n = Math.min(9, ids.length);
-    out.push({ key: first.id, at: key(first.q, first.r), ids, n, currents: ends.size, open: ends.size >= n });
+    const n = Math.min(9, tiles.length);
+    out.push({ key: first.id, at: key(first.q, first.r), ids: tiles.map(t => t.id), tiles, n, currents: ends.size, open: ends.size >= n });
   }
   return out;
 }
 function doors(state, ev) {
   if (!CFG.DOORS || state.level < 1) return;
-  const old = state.doors || {}, next = {};
+  const old = state.doors || {}, next = {}, st = state.rng, planned = new Set(state.spawns.map(s => s.k));
+  let out = null; // door dreams out, by the door they came from
   for (const d of doorClumps(state)) {
-    let best = 0;
-    for (const id of d.ids) if (old[id]) best = Math.max(best, old[id].best);
-    const rec = next[d.key] = { n: d.n, open: d.open, best };
-    if (!d.open || d.n <= best) continue;
-    rec.best = d.n;
-    state.stats.doors = (state.stats.doors || 0) + 1;
-    const at = state.stats.doorAt || (state.stats.doorAt = {});
-    if (at[d.n] == null) at[d.n] = state.turn;
-    // its demon comes through unless it is already here; the first two doors are common, so they are noted only then
-    const dm = mesh(d.n, 0);
-    if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, d.at, ev, 'door', d.n);
-    else if (d.n >= 3) pushEvent(state, ev, 'door', `The ${ORDINAL[d.n]} door is open.`);
+    let best = 0, lastDream = null;
+    for (const id of d.ids) if (old[id]) {
+      best = Math.max(best, old[id].best);
+      if (old[id].lastDream != null && (lastDream == null || old[id].lastDream > lastDream)) lastDream = old[id].lastDream;
+    }
+    const rec = next[d.key] = { n: d.n, open: d.open, best, lastDream };
+    if (d.open && d.n > best) {
+      rec.best = d.n;
+      state.stats.doors = (state.stats.doors || 0) + 1;
+      const at = state.stats.doorAt || (state.stats.doorAt = {});
+      if (at[d.n] == null) at[d.n] = state.turn;
+      // its demon comes through unless it is already here; the first two doors are common, so they are noted only then
+      const dm = mesh(d.n, 0);
+      if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, d.at, ev, 'door', d.n);
+      else if (d.n >= 3) pushEvent(state, ev, 'door', `The ${ORDINAL[d.n]} door is open.`);
+    }
+    // an open door of 3 or more dreams tiles of its own zone at its mouth, laid next step like metropolis tiles
+    if (!d.open || d.n < 3 || CFG.DOOR_BASE <= 0) continue;
+    if (rec.lastDream == null) { rec.lastDream = state.turn; continue; }
+    if (state.turn - rec.lastDream < CFG.DOOR_BASE - d.n) continue;
+    if (!out) {
+      out = {};
+      for (const k in state.map) { const t = state.map[k]; if (t.kind === 'r' && t.doorOf != null) out[t.doorOf] = (out[t.doorOf] || 0) + 1; }
+      for (const s of state.spawns) if (s.door) out[s.doorOf] = (out[s.doorOf] || 0) + 1;
+    }
+    if (d.ids.reduce((a, id) => a + (out[id] || 0), 0) >= CFG.DOOR_DREAM_MAX) continue;
+    const cells = [], seen = new Set(); // empty cells touching the clump or one of its fully wild tiles
+    const add = (q, r) => { const k = key(q, r); if (!state.map[k] && !planned.has(k) && !seen.has(k)) { seen.add(k); cells.push([q, r]); } };
+    for (const t of d.tiles) for (const [dq, dr] of DIRS) {
+      const nb = state.map[key(t.q + dq, t.r + dr)];
+      if (!nb) add(t.q + dq, t.r + dr);
+      else if (nb.kind === 'n' && nb.w.every(c => c === 'X')) for (const [eq, er] of DIRS) add(nb.q + eq, nb.r + er);
+    }
+    if (!cells.length) continue;
+    const [q, r] = cells[rint(st, cells.length)];
+    let w = null;
+    for (let i = 0; i < CFG.DOOR_TRIES; i++) { w = genTile(st, CFG.WEIGHTS); if (tileZone({ kind: 'n', w }) === d.n) break; }
+    state.spawns.push({ k: key(q, r), q, r, w, door: d.n, doorOf: d.key });
+    planned.add(key(q, r)); out[d.key] = (out[d.key] || 0) + 1;
+    rec.lastDream = state.turn;
   }
   state.doors = next;
 }
 
+// believers of a ghost: real neighbours whose facing wedge agrees with it. A door's dream counts no wild land.
+function believers(state, t) {
+  let ok = 0;
+  for (let i = 0; i < 6; i++) {
+    const nb = state.map[key(t.q + DIRS[i][0], t.r + DIRS[i][1])];
+    if (!nb || nb.kind === 'r') continue;
+    const f = nb.w[(i + 3) % 6];
+    if (t.door && f === 'X') continue;
+    if (matches(t.w[i], f)) ok++;
+  }
+  return { ok, need: t.door ? CFG.DOOR_NEED : CFG.RUMOR_NEED };
+}
+
 function rumors(state, ev) {
+  let openDoors = null; // tiles of open doors: a door's dream doesn't fade while its door is open
   for (const k of Object.keys(state.map)) {
     const t = state.map[k];
     if (t.kind !== 'r') continue;
-    let ok = 0;
-    for (let i = 0; i < 6; i++) {
-      const nb = state.map[key(t.q + DIRS[i][0], t.r + DIRS[i][1])];
-      if (nb && nb.kind !== 'r' && matches(t.w[i], nb.w[(i + 3) % 6])) ok++;
-    }
-    if (ok >= CFG.RUMOR_NEED) {
+    const { ok, need } = believers(state, t);
+    if (ok >= need && t.door) {
+      t.kind = 'n'; t.real = state.turn;
+      state.stars += CFG.DOOR_STARS;
+      state.stats.doorDreamsReal = (state.stats.doorDreamsReal || 0) + 1;
+      pushEvent(state, ev, 'rumor', `A dream from the ${ORDINAL[t.door]} door came true (+${CFG.DOOR_STARS}★).`, { k });
+      const dm = mesh(t.door, 0); // the door's demon comes to see it, unless it is already here
+      if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, k, ev, 'rumor');
+    } else if (t.door) {
+      if (!openDoors) { openDoors = new Set(); for (const d of doorClumps(state)) if (d.open) for (const id of d.ids) openDoors.add(id); }
+      if (!openDoors.has(t.doorOf) && state.turn - t.born > CFG.RUMOR_LIFE) { delete state.map[k]; state.stats.doorDreamsFaded = (state.stats.doorDreamsFaded || 0) + 1; }
+    } else if (ok >= need) {
       t.kind = 'n'; t.real = state.turn;
       state.stars += 10;
       if (t.dream) state.stats.dreamsReal = (state.stats.dreamsReal || 0) + 1; else state.stats.rumorsReal++;
@@ -1431,7 +1490,7 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround, doorClumps, ORDINAL,
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround, doorClumps, ORDINAL, believers,
   syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
@@ -1930,7 +1989,7 @@ function openInspector(tl, wi) {
   const town = pieceOn(tl, 'H', wi), dc = pieceOn(tl, 'D', wi), f = focusOf(tl, wi), dcFirst = f && f.T === 'D';
   ui.focus = f; ui.dirty = true; updateHint();
   const named = dcFirst ? dc.name : (town && town.name) || (dc && dc.name);
-  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? (tl.dream ? 'A dream' : 'A rumor') : named ? esc(named) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
+  let title = tl.kind === 'x' ? 'A Plex tile' : tl.kind === 'r' ? (tl.dream || tl.door ? 'A dream' : 'A rumor') : named ? esc(named) : Object.keys(counts).map(c => TERRAIN[c]).join(' and ');
   let townLines = '', dcLines = '';
   if (town) {
     const c = town.cell, G = town.G;
@@ -1950,9 +2009,12 @@ function openInspector(tl, wi) {
     if (f && f.T === 'D' && focusNote(f)) dcLines += `<p class="note">${focusNote(f)}</p>`;
   }
   let lines = dcFirst ? dcLines + townLines : townLines + dcLines;
-  if (tl.kind === 'r') {
-    let ok = 0;
-    for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
+  if (tl.kind === 'r' && tl.door) {
+    const { ok, need } = S.believers(state, tl), mine = (view.doors || []).find(d => d.ids.includes(tl.doorOf));
+    lines += `<p>The ${S.ORDINAL[tl.door]} door dreamed this. ${ok} of ${need} believers so far. Wild land doesn't count.</p>`
+      + `<p class="note">${mine && mine.open ? "It won't fade while its door is open." : `Its door is closed, so it fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.`} If it comes true it gives +${S.CFG.DOOR_STARS}★, and the door's demon comes to see it.</p>`;
+  } else if (tl.kind === 'r') {
+    const { ok } = S.believers(state, tl);
     lines += `<p>${tl.dream ? (tl.w.includes('D') ? 'A data centre dreamed this. The sides touching the machine are data centre, so they already agree. ' : 'A data centre dreamed this. ') : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
   }
   const door = tl.kind === 'x' ? (view.doors || []).find(d => d.ids.includes(tl.id)) : null;
@@ -1981,8 +2043,9 @@ function openInspector(tl, wi) {
   }
   if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'F')) lines += `<p class="note">Vines are growing on the fields here. They are going untended.</p>`;
   if (S.CFG.SPEND && tl.kind === 'n' && tl.w.includes('X')) lines += `<p class="note">${tl.w.every(c => c === 'X') ? 'All wild, so an ordinary tile can be built on it. Building there settles the wild land.' : 'A wild wedge settles when a tile is placed against it: it takes the terrain it faces.'}</p>`;
-  lines += `<p class="note">${tl.kind === 'r' ? (tl.dream ? 'Dreamed' : 'Placed') + ' at placement ' + tl.born + '.'
+  lines += `<p class="note">${tl.kind === 'r' ? (tl.dream || tl.door ? 'Dreamed' : 'Placed') + ' at placement ' + tl.born + '.'
     : tl.dream ? 'A data centre dreamed this, and it came true at placement ' + tl.real + '.'
+    : tl.door ? 'The ' + S.ORDINAL[tl.door] + ' door dreamed this, and it came true at placement ' + tl.real + '.'
     : tl.auto ? 'This tile was laid by a city, on its own, at placement ' + tl.born + '.' : 'Placed at placement ' + tl.born + '.'}</p>`;
   openSheet(`<h2>${title}</h2><div class="chips">${chips}</div>${lines}<button type="button" class="btn sheet-close" id="closeS">Close</button>`, true);
   $('closeS').addEventListener('click', closeSheet);
@@ -2057,7 +2120,8 @@ function openInfo() {
         <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
-        ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>` : ''}
+        ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>
+        <li>A door of three or more dreams while it is open. Every ${S.CFG.DOOR_BASE} placements, less one for each of its tiles, it lays a dream of its own zone in an empty spot beside it or beside one of its fully wild tiles, with up to ${S.CFG.DOOR_DREAM_MAX} out. A door's dream comes true once ${S.CFG.DOOR_NEED} neighbours agree with it, not counting wild land, for +${S.CFG.DOOR_STARS}★ and a visit from the door's demon. It doesn't fade while its door is open.</li>` : ''}
       </ul>
     </details>` : ''}
     ${state.level >= 4 ? `<details>
@@ -2075,7 +2139,7 @@ function openInfo() {
       <ul>
         <li>Glowing wedges change on your next placement. A dashed tile is about to be laid${state.level >= 4 ? ': crimson by a metropolis, violet for a dream' : ' by a metropolis'}.</li>
         <li>Vines grow on hamlets and fields that are fading.</li>
-        <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null ? ' Dreams are ghosts with drifting lines.' : ''}</li>
+        <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null || state.stats.doorDreams ? ` Dreams are ghosts with drifting lines${state.stats.doorDreams ? ': violet from a data centre, crimson from a door' : ''}.` : ''}</li>
         ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
         ${(view.doors || []).some(d => d.open) || state.stats.doors ? '<li>An open door glows crimson.</li>' : ''}
@@ -2296,15 +2360,15 @@ function drawTiles(t) {
       if (tl.d[i] > 0 && (w === 'H' || w === 'F')) drawVines(tl, i, tl.d[i]);
       else if (tl.d[i] > 0 && w === 'D') drawHeat(tl, i, tl.d[i], t);
     }
-    if (rumor && tl.dream) { // a dream: faint scanlines that drift down
+    if (rumor && (tl.dream || tl.door)) { // a dream: faint scanlines that drift down, violet from a data centre, crimson from a door
       ctx.save(); hexPath(0.97); ctx.clip();
-      ctx.strokeStyle = 'rgba(110,79,208,.55)'; ctx.lineWidth = 1 / cam.s;
+      ctx.strokeStyle = tl.door ? 'rgba(194,59,90,.6)' : 'rgba(110,79,208,.55)'; ctx.lineWidth = 1 / cam.s;
       for (let yy = -0.9 + (RM ? 0 : (t * 0.08) % 0.12); yy < 0.9; yy += 0.12) { ctx.beginPath(); ctx.moveTo(-1, yy); ctx.lineTo(1, yy); ctx.stroke(); }
       ctx.restore();
     }
     if (tl.kind === 'x') { ctx.strokeStyle = '#C23B5A'; ctx.lineWidth = 0.045; ctx.beginPath(); ctx.arc(0, 0, 0.26, 0, 7); ctx.stroke(); }
     hexPath(1); ctx.lineWidth = (rumor ? 2 : 1) / cam.s;
-    ctx.strokeStyle = rumor ? 'rgba(110,79,208,.9)' : 'rgba(30,43,47,.13)';
+    ctx.strokeStyle = rumor ? (tl.door ? 'rgba(194,59,90,.9)' : 'rgba(110,79,208,.9)') : 'rgba(30,43,47,.13)';
     if (rumor) ctx.setLineDash([6 / cam.s, 4 / cam.s]);
     ctx.stroke(); ctx.setLineDash([]);
     ctx.globalAlpha = 1;
@@ -2465,7 +2529,7 @@ function drawPending(t) {
   }
   for (const sp of state.spawns) { // a metropolis tile (crimson) or a dream (violet) about to be laid
     const c = hexCenter(sp.q, sp.r); setT(c[0], c[1]);
-    ctx.globalAlpha = pulse * (sp.dream ? 0.45 : 0.8);
+    ctx.globalAlpha = pulse * (sp.dream || sp.door ? 0.45 : 0.8);
     for (let i = 0; i < 6; i++) { wedgePath(i); ctx.fillStyle = COL[sp.w[i]] || COL.H; ctx.fill(); }
     ctx.globalAlpha = 1; hexPath(1); ctx.lineWidth = 2.4 / cam.s; ctx.strokeStyle = sp.dream ? '#6E4FD0' : '#C23B5A'; ctx.setLineDash([6 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
@@ -2589,10 +2653,9 @@ function drawText(now) {
     ctx.font = `500 ${Math.round(Math.max(10, s * 0.22))}px "IBM Plex Mono", monospace`;
     for (const k in state.map) {
       const tl = state.map[k]; if (tl.kind !== 'r') continue;
-      let ok = 0;
-      for (let i = 0; i < 6; i++) { const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])]; if (nb && nb.kind !== 'r' && S.matches(tl.w[i], nb.w[(i + 3) % 6])) ok++; }
+      const { ok, need } = S.believers(state, tl);
       const c = hexCenter(tl.q, tl.r), [sx, sy] = toScreen(c[0], c[1] + 0.55);
-      ctx.fillStyle = '#4B3A9A'; ctx.fillText(`${ok}/${S.CFG.RUMOR_NEED}`, sx, sy);
+      ctx.fillStyle = tl.door ? '#9A2E47' : '#4B3A9A'; ctx.fillText(`${ok}/${need}`, sx, sy);
     }
   }
   // town labels, biggest first, then data centres that took a town's name (dark), skipping overlaps
