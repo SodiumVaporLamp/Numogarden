@@ -267,6 +267,9 @@ const CFG = {
   WARP_TRIES: 2,        // Warp: building tries per step are multiplied by this
   PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%;
                                  // past the cap, Plex tiles from fits and gifts turn into stars too
+  SPEND: true,          // wild land can be settled: each wild wedge a placed tile touches takes the terrain it faces,
+                        //   and a fully wild tile is open ground for an ordinary tile
+                        //   (false = wild land never changes back, which replays the rules before settling)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -407,8 +410,11 @@ function hasNeighbour(state, q, r) {
   for (const d of DIRS) if (state.map[key(q + d[0], r + d[1])]) return true;
   return false;
 }
+// a fully wild ordinary tile is open ground: an ordinary tile can be built on it, which settles it
+function isWildGround(t) { return !!(CFG.SPEND && t && t.kind === 'n' && t.w.every(c => c === 'X')); }
 function frontier(state) {
   const seen = {}, out = [];
+  for (const k in state.map) { const t = state.map[k]; if (isWildGround(t) && hasNeighbour(state, t.q, t.r)) { seen[k] = 1; out.push([t.q, t.r]); } }
   for (const k in state.map) {
     const t = state.map[k];
     for (const d of DIRS) {
@@ -463,7 +469,8 @@ function spawnLemur(state, d, k, ev, why) {
 function grant(state, item, ev) {
   if (state.hand.length >= CFG.HAND_MAX) { state.stars += 5; pushEvent(state, ev, 'reward', 'Hand full, so the bonus turns into +5★.'); return; }
   // one cap for all wild land: past PLEX_CAP a Plex tile from a fit or a gift turns into stars
-  if (item.kind === 'x' && shares(state).X >= CFG.PLEX_CAP) { state.stars += 5; pushEvent(state, ev, 'reward', 'Wild land is plentiful, so the bonus turns into +5★.'); return; }
+  if (item.kind === 'x' && shares(state).X >= CFG.PLEX_CAP) { state.stars += 5; state.stats.plexStars = (state.stats.plexStars || 0) + 1; pushEvent(state, ev, 'reward', 'Wild land is plentiful, so the bonus turns into +5★.'); return; }
+  if (item.kind === 'x') state.stats.plexGiven = (state.stats.plexGiven || 0) + 1;
   state.hand.push(item);
 }
 function choose(state, which) {
@@ -476,8 +483,8 @@ function choose(state, which) {
 
 function place(state, slotRef, q, r, k, opts) {
   opts = opts || {};
-  const kk = key(q, r);
-  if (state.map[kk]) return { ok: false, why: 'occupied' };
+  const kk = key(q, r), under = state.map[kk];
+  if (under && (!isWildGround(under) || opts.ferry)) return { ok: false, why: 'occupied' };
   if (opts.ferry) {
     if (state.ferries <= 0) return { ok: false, why: 'no ferry' };
     let near = false;
@@ -488,16 +495,42 @@ function place(state, slotRef, q, r, k, opts) {
   if (slotRef.from === 'offer') { w = state.offers[slotRef.i]; kind = 'n'; }
   else { const h = state.hand[slotRef.i]; if (!h) return { ok: false, why: 'no slot' }; kind = h.kind; w = kind === 'x' ? XW : h.w; }
   if (!w) return { ok: false, why: 'no slot' };
+  if (under && kind !== 'n') return { ok: false, why: 'occupied' }; // only an ordinary tile settles wild ground
   w = rot(w, k || 0);
   const ev = evalPlacement(state, w, q, r);
   const out = { ok: true, m: ev.m, n: ev.n, gain: 0, events: [] };
+  if (under) { delete state.map[kk]; state.stats.wildBuilt = (state.stats.wildBuilt || 0) + 1; state.stats.settled = (state.stats.settled || 0) + 6; }
   const t = addTile(state, q, r, w, kind);
+  // the edges were counted before settling, so wild edges still match; zones and syzygies see the settled land
+  if (kind === 'n') {
+    const settled = settle(state, q, r, w).map(s => ({ q: s.t.q, r: s.t.r, i: s.i, to: s.to }));
+    if (under) for (let i = 0; i < 6; i++) settled.push({ q, r, i, to: w[i] });
+    if (settled.length) out.settled = settled;
+  }
   if (slotRef.from === 'offer') state.offers[slotRef.i] = genTile(state.rng, deckOf(state));
   else state.hand.splice(slotRef.i, 1);
   if (opts.ferry) state.ferries--;
   if (kind !== 'r') scorePlacement(state, t, ev, out);
   step(state, out.events);
   return out;
+}
+
+// settling: each wild wedge of an ordinary neighbour that faces a newly placed tile takes the terrain of the new
+// tile's wedge on that edge. Whole Plex tiles never change.
+function settleSpots(state, q, r, w) {
+  const out = [];
+  if (!CFG.SPEND) return out;
+  for (let i = 0; i < 6; i++) {
+    const nb = state.map[key(q + DIRS[i][0], r + DIRS[i][1])], j = (i + 3) % 6;
+    if (nb && nb.kind === 'n' && nb.w[j] === 'X' && w[i] !== 'X') out.push({ t: nb, i: j, to: w[i] });
+  }
+  return out;
+}
+function settle(state, q, r, w) {
+  const spots = settleSpots(state, q, r, w);
+  for (const s of spots) { s.t.w[s.i] = s.to; s.t.d[s.i] = 0; s.t.tg[s.i] = 0; s.t.z = tileZone(s.t); }
+  if (spots.length) state.stats.settled = (state.stats.settled || 0) + spots.length;
+  return spots;
 }
 
 function scorePlacement(state, t, ev, out) {
@@ -1199,7 +1232,7 @@ const LEVEL_TXT = [
 ];
 function levelUp(state, ev) {
   let L = 0; for (let i = 0; i < CFG.LEVELS.length; i++) if (state.stars >= CFG.LEVELS[i]) L = i;
-  while (state.level < L) { state.level++; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
+  while (state.level < L) { state.level++; (state.stats.levelAt || (state.stats.levelAt = {}))[state.level] = state.turn; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
 }
 
 /* syzygies on the board: adjacent real tiles whose zones sum to nine. Each pair carries the current
@@ -1340,7 +1373,7 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround,
   syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
@@ -1421,7 +1454,11 @@ function computeValid() {
   if (ui.mode === 'builder') return;
   const cells = ui.mode === 'ferry' ? S.ferryCells(state, 3) : S.frontier(state);
   const st = selectedTile();
-  for (const [q, r] of cells) { const b = bestRot(st, q, r); ui.valid.push({ q, r, m: b.m, n: b.n }); }
+  for (const [q, r] of cells) {
+    const wild = !!state.map[S.key(q, r)]; // wild ground takes ordinary tiles only
+    if (wild && st.kind !== 'n') continue;
+    const b = bestRot(st, q, r); ui.valid.push({ q, r, m: b.m, n: b.n, wild });
+  }
 }
 function refresh() {
   idMap = {};
@@ -1486,6 +1523,7 @@ function doPlace() {
   const g = ui.ghost, before = JSON.stringify(state);
   const res = S.place(state, ui.sel, g.q, g.r, g.k, { ferry: ui.mode === 'ferry' });
   if (!res.ok) { hintEl.textContent = 'That spot is not available right now.'; return; }
+  ui.settle = res.settled && !RM ? { at: performance.now(), spots: res.settled } : null;
   ui.undo.push(before); if (ui.undo.length > 30) ui.undo.shift();
   const c = hexCenter(g.q, g.r);
   if (res.gain) floater(c[0], c[1] - 0.2, '+' + res.gain + '★', '#1E2B2F');
@@ -1508,7 +1546,7 @@ function doClear() {
 function doUndo() {
   if (!ui.undo.length) return;
   state = JSON.parse(ui.undo.pop());
-  ui.ghost = null; ui.mode = 'place'; ui.clearKey = null;
+  ui.ghost = null; ui.mode = 'place'; ui.clearKey = null; ui.settle = null;
   if (!S.slotTiles(state).some(s => s.from === ui.sel.from && s.i === ui.sel.i)) ui.sel = { from: 'offer', i: 0 };
   closeSheet(); refresh(); save();
 }
@@ -1582,26 +1620,33 @@ function ghostEval() {
   const st = selectedTile(), w = S.rot(st.w, ui.ghost.k);
   const e = S.evalPlacement(state, w, ui.ghost.q, ui.ghost.r);
   const z = zoneOfW(w);
-  const opens = []; // currents this placement would open; a rumor opens none until it is real
+  const onWild = st.kind === 'n' && !!state.map[S.key(ui.ghost.q, ui.ghost.r)];
+  const spots = st.kind === 'n' ? S.settleSpots(state, ui.ghost.q, ui.ghost.r, w) : [];
+  const settledZ = new Map(spots.map(s => [s.t.id, S.tileZone({ kind: 'n', w: s.t.w.map((c, i) => i === s.i ? s.to : c) })]));
+  const opens = []; // currents this placement would open, once the wild land it touches has settled; a rumor opens none until it is real
   if (st.kind !== 'r') for (const d of S.DIRS) {
     const nb = state.map[S.key(ui.ghost.q + d[0], ui.ghost.r + d[1])];
-    if (!nb || nb.kind === 'r' || nb.z + z !== 9) continue;
-    const hi = Math.max(z, nb.z), name = S.CURRENTS[2 * hi - 9];
+    if (!nb || nb.kind === 'r') continue;
+    const nz = settledZ.has(nb.id) ? settledZ.get(nb.id) : nb.z;
+    if (nz + z !== 9) continue;
+    const hi = Math.max(z, nz), name = S.CURRENTS[2 * hi - 9];
     if (!opens.some(o => o.name === name)) opens.push({ name, hi, lo: 9 - hi });
   }
-  return { st, w, e, z, opens };
+  return { st, w, e, z, opens, onWild, settles: spots.length };
 }
 function updateHint() {
   let txt;
   if (ui.mode === 'builder') txt = ui.clearKey ? 'Tap Clear tile to remove it. You can build on the empty spot.' : 'Builder: tap any tile to clear it.';
   else if (ui.focus) txt = focusHint(ui.focus) + ' Tap the map to clear.'; // until the next tap, the town just inspected
   else if (ui.ghost) {
-    const { st, e, opens } = ghostEval();
+    const { st, e, opens, onWild, settles } = ghostEval();
     if (st.kind === 'r') txt = `A rumor. It becomes real once ${S.CFG.RUMOR_NEED} neighbours agree with its edges.`;
     else {
       const clean = e.n >= 2 && e.m === e.n;
       txt = clean ? (e.n >= 4 ? 'Perfect fit' : e.n >= 3 ? 'Snug fit' : 'Clean fit') : `${e.m} of ${e.n} edges match`;
       txt += ` · +${e.m}★`;
+      if (onWild) txt += settles ? ` · builds on wild land and settles ${plural(settles, 'more wild wedge')}` : ' · builds on wild land';
+      else if (settles) txt += ` · settles ${plural(settles, 'wild wedge')}`;
       if (opens.length && state.level >= 1) txt += ' · opens ' + opens.map(o => `a ${o.name} current (${o.hi}::${o.lo})`).join(' and ');
       if (st.kind !== 'x') txt += '. Tap the tile to turn it.';
       if (st.w.includes('D')) txt += ' Data centres need sea next to them.';
@@ -1839,6 +1884,7 @@ function openInspector(tl, wi) {
     }
   }
   if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'F')) lines += `<p class="note">Vines are growing on the fields here. They are going untended.</p>`;
+  if (S.CFG.SPEND && tl.kind === 'n' && tl.w.includes('X')) lines += `<p class="note">${tl.w.every(c => c === 'X') ? 'All wild, so an ordinary tile can be built on it. Building there settles the wild land.' : 'A wild wedge settles when a tile is placed against it: it takes the terrain it faces.'}</p>`;
   lines += `<p class="note">${tl.kind === 'r' ? (tl.dream ? 'Dreamed' : 'Placed') + ' at placement ' + tl.born + '.'
     : tl.dream ? 'A data centre dreamed this, and it came true at placement ' + tl.real + '.'
     : tl.auto ? 'This tile was laid by a city, on its own, at placement ' + tl.born + '.' : 'Placed at placement ' + tl.born + '.'}</p>`;
@@ -1888,6 +1934,7 @@ function openInfo() {
         <li><b>Jungle</b> is the Outside. It grows over meadow next to it, and a jungle of ${S.CFG.JCRIT} or more takes hungry hamlets and untended fields.</li>
         <li><b>Meadow</b> is the land in between. It matches fields and jungle, and towns build on it first.</li>
         <li><b>Plex</b> tiles are wild. They match every edge and join every group around them without adding to its size.</li>
+        ${S.CFG.SPEND ? '<li>Wild land settles when you build against it: each wild wedge your tile touches takes the terrain it faces. A tile that has gone all wild is open ground, and you can build an ordinary tile on it.</li>' : ''}
         ${state.level >= 4 ? '<li><b>Data centres</b> arrive at night. See Night below.</li>' : ''}
       </ul>
     </details>
@@ -2324,9 +2371,10 @@ function drawPending(t) {
     ctx.globalAlpha = 1; hexPath(1); ctx.lineWidth = 2.4 / cam.s; ctx.strokeStyle = sp.dream ? '#6E4FD0' : '#C23B5A'; ctx.setLineDash([6 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
 }
-function drawValid() {
+function drawValid(over) {
   if (ui.mode === 'builder') return;
   for (const v of ui.valid) {
+    if (!v.wild !== !over) continue; // open ground is drawn under the land, wild ground over its tile
     if (ui.ghost && ui.ghost.q === v.q && ui.ghost.r === v.r) continue;
     const c = hexCenter(v.q, v.r); setT(c[0], c[1]);
     const clean = prefs.cleanFits && v.n >= 2 && v.m === v.n; // teal only when the player asked for it
@@ -2336,6 +2384,16 @@ function drawValid() {
     ctx.lineWidth = (clean ? 1.8 : 1.1) / cam.s; ctx.strokeStyle = clean ? 'rgba(31,140,120,.85)' : 'rgba(30,43,47,.28)';
     ctx.setLineDash([5 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
+}
+function drawSettle(now) { // wild wedges that just took form fade out of their wild colours
+  const s = ui.settle; if (!s) return;
+  const a = 1 - (now - s.at) / 900;
+  if (a <= 0) { ui.settle = null; return; }
+  for (const p of s.spots) {
+    const c = hexCenter(p.q, p.r); setT(c[0], c[1]);
+    wedgePath(p.i, 0.98); ctx.globalAlpha = a * a; ctx.fillStyle = wedgeColor('X', null, p.i, now / 1000); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }
 function drawGhost(t) {
   if (!ui.ghost || ui.mode === 'builder') return;
@@ -2476,9 +2534,11 @@ function draw(now) {
   if (state.level >= 3 && state.level < 4) { ctx.fillStyle = 'rgba(110,79,208,.05)'; ctx.fillRect(0, 0, W, H); }
   drawValid();
   drawTiles(t);
+  drawValid(true);
   if (state.level >= 1) drawCurrentTint();
   drawRoads(t, false);
   if (state.level >= 4) { drawNight(t); drawRoads(t, true); }
+  drawSettle(now);
   if (state.level >= 1) drawCurrents(t);
   if (ui.focus) drawFocus(t);
   drawPending(t);

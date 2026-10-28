@@ -50,6 +50,9 @@ const CFG = {
   WARP_TRIES: 2,        // Warp: building tries per step are multiplied by this
   PLEX_EVERY: 5, PLEX_CAP: 0.08, // Plex: one wedge turns wild every 5 steps while wild land is under 8%;
                                  // past the cap, Plex tiles from fits and gifts turn into stars too
+  SPEND: true,          // wild land can be settled: each wild wedge a placed tile touches takes the terrain it faces,
+                        //   and a fully wild tile is open ground for an ordinary tile
+                        //   (false = wild land never changes back, which replays the rules before settling)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -190,8 +193,11 @@ function hasNeighbour(state, q, r) {
   for (const d of DIRS) if (state.map[key(q + d[0], r + d[1])]) return true;
   return false;
 }
+// a fully wild ordinary tile is open ground: an ordinary tile can be built on it, which settles it
+function isWildGround(t) { return !!(CFG.SPEND && t && t.kind === 'n' && t.w.every(c => c === 'X')); }
 function frontier(state) {
   const seen = {}, out = [];
+  for (const k in state.map) { const t = state.map[k]; if (isWildGround(t) && hasNeighbour(state, t.q, t.r)) { seen[k] = 1; out.push([t.q, t.r]); } }
   for (const k in state.map) {
     const t = state.map[k];
     for (const d of DIRS) {
@@ -246,7 +252,8 @@ function spawnLemur(state, d, k, ev, why) {
 function grant(state, item, ev) {
   if (state.hand.length >= CFG.HAND_MAX) { state.stars += 5; pushEvent(state, ev, 'reward', 'Hand full, so the bonus turns into +5★.'); return; }
   // one cap for all wild land: past PLEX_CAP a Plex tile from a fit or a gift turns into stars
-  if (item.kind === 'x' && shares(state).X >= CFG.PLEX_CAP) { state.stars += 5; pushEvent(state, ev, 'reward', 'Wild land is plentiful, so the bonus turns into +5★.'); return; }
+  if (item.kind === 'x' && shares(state).X >= CFG.PLEX_CAP) { state.stars += 5; state.stats.plexStars = (state.stats.plexStars || 0) + 1; pushEvent(state, ev, 'reward', 'Wild land is plentiful, so the bonus turns into +5★.'); return; }
+  if (item.kind === 'x') state.stats.plexGiven = (state.stats.plexGiven || 0) + 1;
   state.hand.push(item);
 }
 function choose(state, which) {
@@ -259,8 +266,8 @@ function choose(state, which) {
 
 function place(state, slotRef, q, r, k, opts) {
   opts = opts || {};
-  const kk = key(q, r);
-  if (state.map[kk]) return { ok: false, why: 'occupied' };
+  const kk = key(q, r), under = state.map[kk];
+  if (under && (!isWildGround(under) || opts.ferry)) return { ok: false, why: 'occupied' };
   if (opts.ferry) {
     if (state.ferries <= 0) return { ok: false, why: 'no ferry' };
     let near = false;
@@ -271,16 +278,42 @@ function place(state, slotRef, q, r, k, opts) {
   if (slotRef.from === 'offer') { w = state.offers[slotRef.i]; kind = 'n'; }
   else { const h = state.hand[slotRef.i]; if (!h) return { ok: false, why: 'no slot' }; kind = h.kind; w = kind === 'x' ? XW : h.w; }
   if (!w) return { ok: false, why: 'no slot' };
+  if (under && kind !== 'n') return { ok: false, why: 'occupied' }; // only an ordinary tile settles wild ground
   w = rot(w, k || 0);
   const ev = evalPlacement(state, w, q, r);
   const out = { ok: true, m: ev.m, n: ev.n, gain: 0, events: [] };
+  if (under) { delete state.map[kk]; state.stats.wildBuilt = (state.stats.wildBuilt || 0) + 1; state.stats.settled = (state.stats.settled || 0) + 6; }
   const t = addTile(state, q, r, w, kind);
+  // the edges were counted before settling, so wild edges still match; zones and syzygies see the settled land
+  if (kind === 'n') {
+    const settled = settle(state, q, r, w).map(s => ({ q: s.t.q, r: s.t.r, i: s.i, to: s.to }));
+    if (under) for (let i = 0; i < 6; i++) settled.push({ q, r, i, to: w[i] });
+    if (settled.length) out.settled = settled;
+  }
   if (slotRef.from === 'offer') state.offers[slotRef.i] = genTile(state.rng, deckOf(state));
   else state.hand.splice(slotRef.i, 1);
   if (opts.ferry) state.ferries--;
   if (kind !== 'r') scorePlacement(state, t, ev, out);
   step(state, out.events);
   return out;
+}
+
+// settling: each wild wedge of an ordinary neighbour that faces a newly placed tile takes the terrain of the new
+// tile's wedge on that edge. Whole Plex tiles never change.
+function settleSpots(state, q, r, w) {
+  const out = [];
+  if (!CFG.SPEND) return out;
+  for (let i = 0; i < 6; i++) {
+    const nb = state.map[key(q + DIRS[i][0], r + DIRS[i][1])], j = (i + 3) % 6;
+    if (nb && nb.kind === 'n' && nb.w[j] === 'X' && w[i] !== 'X') out.push({ t: nb, i: j, to: w[i] });
+  }
+  return out;
+}
+function settle(state, q, r, w) {
+  const spots = settleSpots(state, q, r, w);
+  for (const s of spots) { s.t.w[s.i] = s.to; s.t.d[s.i] = 0; s.t.tg[s.i] = 0; s.t.z = tileZone(s.t); }
+  if (spots.length) state.stats.settled = (state.stats.settled || 0) + spots.length;
+  return spots;
 }
 
 function scorePlacement(state, t, ev, out) {
@@ -982,7 +1015,7 @@ const LEVEL_TXT = [
 ];
 function levelUp(state, ev) {
   let L = 0; for (let i = 0; i < CFG.LEVELS.length; i++) if (state.stars >= CFG.LEVELS[i]) L = i;
-  while (state.level < L) { state.level++; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
+  while (state.level < L) { state.level++; (state.stats.levelAt || (state.stats.levelAt = {}))[state.level] = state.turn; pushEvent(state, ev, 'level', LEVEL_TXT[state.level], { level: state.level }); }
 }
 
 /* syzygies on the board: adjacent real tiles whose zones sum to nine. Each pair carries the current
@@ -1123,7 +1156,7 @@ function shares(state) {
 }
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
-  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf,
+  newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround,
   syzygyPairs, currentArea, activeCurrents, updateCurrents };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;

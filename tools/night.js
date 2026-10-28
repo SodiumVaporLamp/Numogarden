@@ -57,6 +57,7 @@ if (R.some(r => r.st.absorbed)) console.log(`hamlet wedges absorbed per run (med
 if (R.some(r => r.st.dreams)) console.log(`dreams per run (median): laid ${stat('dreams')}, came true ${stat('dreamsReal')}`);
 if (R.some(r => r.ghosts.steps)) console.log(`dream ghosts on the map once data centres arrive: mean ${(R.reduce((a, r) => a + r.ghosts.sum, 0) / Math.max(1, R.reduce((a, r) => a + r.ghosts.steps, 0))).toFixed(1)}, max ${Math.max(...R.map(r => r.ghosts.max))}`);
 if (R.some(r => r.st.roads)) console.log(`roads per run (median): built ${stat('roads')}, town-steps a road kept fed ${stat('roadFed')}; standing at once: mean ${(R.reduce((a, r) => a + r.roads.sum, 0) / Math.max(1, R.reduce((a, r) => a + r.roads.steps, 0))).toFixed(1)}, max ${Math.max(...R.map(r => r.roads.max))}`);
+if (R.some(r => r.st.settled)) console.log(`wild land per run (median): settled ${stat('settled')} wedges, Plex tiles given ${stat('plexGiven')}, turned into stars ${stat('plexStars')}, perfect fits ${stat('perfect')}`);
 console.log(`towns kept (a 12+ town or a data centre with a town's name) in ${R.filter(r => r.kept >= 1).length}/${RUNS} runs`);
 const errs = R.reduce((a, r) => a + r.errors, 0);
 console.log(`errors: ${errs}${errs ? '\n' + R.find(r => r.firstErr).firstErr : ''}`);

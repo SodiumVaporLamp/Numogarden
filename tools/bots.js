@@ -1,6 +1,6 @@
 /* Scripted players for headless runs. greedyMove takes the placement with the most matching edges
    (ties broken by more neighbours, then at random); zoneMove also chases syzygies;
-   randomMove places anything anywhere. */
+   randomMove places anything anywhere. Wild ground (a fully wild tile) takes ordinary tiles only. */
 const S = require('../src/sim.js');
 
 function cellNeighbours(state, cells) {
@@ -34,6 +34,7 @@ function greedyMove(state, zoneBonus) {
     const rots = s.kind === 'x' ? 1 : 6;
     const tz = zs ? S.tileZone({ kind: s.kind, w: s.w }) : 0;
     for (let c = 0; c < cells.length; c++) {
+      if (s.kind !== 'n' && state.map[S.key(cells[c][0], cells[c][1])]) continue; // wild ground takes ordinary tiles only
       const nw = nbs[c];
       const zb = zs ? zoneBonus * zs[c].filter(z => z + tz === 9).length : 0;
       for (let k = 0; k < rots; k++) {
@@ -53,7 +54,8 @@ function greedyMove(state, zoneBonus) {
 }
 function randomMove(state) {
   const slots = S.slotTiles(state), cells = S.frontier(state);
-  const s = slots[S.rint(state.rng, slots.length)], c = cells[S.rint(state.rng, cells.length)];
+  const s = slots[S.rint(state.rng, slots.length)];
+  const open = s.kind === 'n' ? cells : cells.filter(([q, r]) => !state.map[S.key(q, r)]), c = open[S.rint(state.rng, open.length)];
   return { slot: { from: s.from, i: s.i }, q: c[0], r: c[1], k: S.rint(state.rng, 6) };
 }
 
