@@ -1509,11 +1509,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);
 </script>
-<script>/* Numogarden town art: buildings that grow with a town through eight tiers, from SVL's art lab (approved 2026-10-28).
-   Ported from the lab's "Proposed" code (specs/art-lab.html, private). Renderer only: nothing here touches the rules.
+<script>/* Numogarden town and data-centre art, from SVL's art labs (both approved 2026-10-28). Buildings grow with a town
+   through eight tiers, ported from the lab's "Proposed" code (specs/art-lab.html, private), and a data centre grows
+   out through seven sizes, ported from specs/dc-art.js (private). Renderer only: nothing here touches the rules.
    planTile() lists a town tile's buildings in local units (one hex radius = 1), drawBuilding() draws one of them,
-   and variedTiers() hands a big town's tallest art to the tiles at its heart. The page caches the plans and draws
-   every visible building as one list, back to front. */
+   and variedTiers() hands a big town's tallest art to the tiles at its heart; planDC(), drawDC() and dcVariedTiers()
+   do the same for a data centre's pieces. The page caches the plans and draws every visible building and piece as
+   one list, back to front. */
 (function (root) {
 'use strict';
 
@@ -1866,7 +1868,639 @@ function variedTiers(town, T) { // town: [[q, r, town wedges, tile id], ...]
   return out;
 }
 
-const Art = { TIERS, SHARE, tierIndex, variedTiers, planTile, drawBuilding, drawTownGround };
+/* ---------- data centres ----------
+   A data centre grows with its cluster through seven art sizes, from a rack per wedge to a machine shaped like the
+   board itself. Towns grow up; data centres grow out, until the tile is the machine. planDC() lists a tile's pieces in
+   local units, drawDC() draws one piece by day or, with night = true, its lights, and drawDCGround() /
+   drawDCGroundNight() draw what lies on the ground: fences, lamp posts, sea intakes, pods under the sea and the heat
+   over a wedge about to fall. The rules keep one data-centre tier; these sizes are art, by the cluster's wedges. */
+// Sizes in cluster wedges. One sea contact cools COOL_K = 6 wedges, so the first four steps each double the sea a
+// cluster needs; past campus, each step needs two more contacts, so the matrioshka comes at sizes games reach.
+const DC_TIERS = [
+  { name: 'Rack', min: 1, max: 6, sample: 4 },
+  { name: 'Server hall', min: 7, max: 12, sample: 10 },
+  { name: 'Data hall', min: 13, max: 24, sample: 18 },
+  { name: 'Campus', min: 25, max: 48, sample: 36 },
+  { name: 'Hyperscale', min: 49, max: 60, sample: 54 },
+  { name: 'Exascale', min: 61, max: 72, sample: 66 },
+  { name: 'Matrioshka', min: 73, max: 0, sample: 84 }
+];
+const WALL = '#2B3142', TOP = '#5C6680';          // today's slab and the strip along its top
+const ROOF_HALL = '#4F5874', ROOF = '#363D54', ROOF_EDGE = '#5F6986'; // dark roofs, so data centre stays the darkest land
+const STRIP = '#4B5370', RIM = '#717B98';                            // rows of chillers on a big roof, and their fans
+const BOARD = '#2E3447', TRACE = '#67728E';        // a roof that has become a circuit
+const SHELL = '#262B3A', SHELL_ROOF = '#343A50';
+const FAN = '#1B2030';
+const LED = WIN, LED_NIGHT = WIN_NIGHT, HOT = BEACON, HOT_OFF = BEACON_OFF; // the town windows' teal, and the beacons' red
+const CONCRETE = '#CDD2DC';
+const IN_OUT = 0.1, IN_D = 0.05, IN_SIDE = 0.07, IN_ROAD = 0.045; // how far a hall stands back from each kind of edge
+
+function dcTierIndex(size) { let k = 0; for (let i = 0; i < DC_TIERS.length; i++) if (size >= DC_TIERS[i].min) k = i; return k; }
+/* Varied tiers, as for towns (Art.variedTiers): the top art goes to a few tiles at the cluster's heart. But a data centre
+   is one machine, so once it passes campus size none of its tiles draws below campus. The matrioshka needs a whole tile:
+   it goes to the best-placed whole tile, and a partial tile ranked that high draws as exascale.
+   cluster: [[q, r, data-centre wedges, tile id], ...] */
+function dcVariedTiers(cluster, T) {
+  const out = variedTiers(cluster, T).map(t => Math.max(t, Math.min(T, 3)));
+  if (T !== 6) return out;
+  out.forEach((t, j) => { if (t === 6 && cluster[j][2] < 6) out[j] = 5; });
+  if (!out.includes(6)) {
+    let cx = 0, cy = 0, n = 0, best = -1, bd = 0;
+    for (const c of cluster) { cx += (1.5 * c[0]) * c[2]; cy += Math.sqrt(3) * (c[1] + c[0] / 2) * c[2]; n += c[2]; }
+    cx /= n; cy /= n;
+    cluster.forEach((c, j) => {
+      if (c[2] < 6) return;
+      const d = Math.hypot(1.5 * c[0] - cx, Math.sqrt(3) * (c[1] + c[0] / 2) - cy);
+      if (best < 0 || out[j] > out[best] || (out[j] === out[best] && d < bd)) { best = j; bd = d; }
+    });
+    if (best >= 0) out[best] = 6;
+  }
+  return out;
+}
+
+/* ---------- data centres: geometry ---------- */
+function area(P) { let s = 0; for (let k = 0; k < P.length; k++) { const a = P[k], b = P[(k + 1) % P.length]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; }
+function normals(P) { // outward unit normal of each edge k (P[k] -> P[k+1]); screen y points down
+  const sg = area(P) > 0 ? 1 : -1;
+  return P.map((a, k) => { const b = P[(k + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); return [sg * dy / l, -sg * dx / l]; });
+}
+function inset(P, m) { // move each edge k inward by m[k] (or m) and rejoin the corners
+  const n = P.length, N = normals(P), L = [];
+  for (let k = 0; k < n; k++) {
+    const a = P[k], b = P[(k + 1) % n], mm = Array.isArray(m) ? m[k] : m;
+    L.push([a[0] - N[k][0] * mm, a[1] - N[k][1] * mm, b[0] - a[0], b[1] - a[1]]);
+  }
+  return L.map((B, k) => {
+    const A = L[(k + n - 1) % n], cr = A[2] * B[3] - A[3] * B[2];
+    if (Math.abs(cr) < 1e-9) return [B[0], B[1]];
+    const t = ((B[0] - A[0]) * B[3] - (B[1] - A[1]) * B[2]) / cr;
+    return [A[0] + A[2] * t, A[1] + A[3] * t];
+  });
+}
+function inside(P, x, y) {
+  let c = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const a = P[i], b = P[j];
+    if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+function edgeDist(P, x, y) {
+  let d = 1e9;
+  for (let k = 0; k < P.length; k++) {
+    const a = P[k], b = P[(k + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
+    d = Math.min(d, Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t));
+  }
+  return d;
+}
+function centroid(P) {
+  let cx = 0, cy = 0, A = 0;
+  for (let k = 0; k < P.length; k++) { const a = P[k], b = P[(k + 1) % P.length], c = a[0] * b[1] - b[0] * a[1]; A += c; cx += (a[0] + b[0]) * c; cy += (a[1] + b[1]) * c; }
+  return [cx / (3 * A), cy / (3 * A)];
+}
+function hexPts(r, x, y) { return CORN.map(c => [x + c[0] * r, y + c[1] * r]); }
+function runsOf(w) { // the tile's data-centre wedges as runs of neighbours, going round
+  const ds = []; for (let i = 0; i < 6; i++) if (w[i] === 'D') ds.push(i);
+  if (ds.length === 6) return [[0, 1, 2, 3, 4, 5]];
+  if (!ds.length) return [];
+  let s = 0; while (w[s] === 'D') s++;
+  const runs = []; let cur = null;
+  for (let k = 1; k <= 6; k++) { const i = (s + k) % 6; if (w[i] === 'D') { if (!cur) { cur = []; runs.push(cur); } cur.push(i); } else cur = null; }
+  return runs;
+}
+
+/* ---------- data centres: planning ---------- */
+function mkDC(a, kind, x, y, props) {
+  const b = Object.assign({ k: kind, x, y, tc: a.c, wx: a.c[0] + x, wy: a.c[1] + y, a }, props);
+  b.id = (Math.floor((b.seed || 0) * 1e9) ^ a.sid) | 0;
+  return b;
+}
+function seaSpot(i, side, s) { // where cooling stands on wedge i, on the side its sea is
+  if (side === 'a') return wpt(i, 0.56, 0.14);
+  if (side === 'b') return wpt(i, 0.14, 0.56);
+  return s < 0.5 ? wpt(i, 0.5, 0.3) : wpt(i, 0.3, 0.5);
+}
+/* a: { sid, c, w, d, ti: art tier, hot, sea[i]: 'a' | 'b' | 'o' | null (which side of wedge i its sea is),
+        nb[i]: the wedge across edge i is data centre, nbT[i]: that tile's art tier } */
+function planDC(a) {
+  const out = [], ds = [];
+  for (let i = 0; i < 6; i++) if (a.w[i] === 'D') ds.push(i);
+  a.roofAt = [];
+  if (!ds.length) return out;
+  let T = a.ti; if (T === 6 && ds.length < 6) T = 5;
+  a.T = T;
+  const R = (x, y) => hh(a.sid + 11, x * 131 + y);
+  if (T <= 2) { for (const i of ds) planSmall(out, a, i, T, R); return out; }
+  if (T === 3) {
+    for (const i of ds) {
+      const P = [[0, 0], CORN[i], CORN[(i + 1) % 6]];
+      const m = [a.w[(i + 5) % 6] === 'D' ? IN_ROAD : IN_SIDE, a.nb[i] ? IN_D : IN_OUT, a.w[(i + 1) % 6] === 'D' ? IN_ROAD : IN_SIDE];
+      out.push(slab(a, P, m, 0.075, 'fans', R(i, 5), [i]));
+    }
+    if (ds.length >= 3) out.push(mkDC(a, 'mast', 0, 0.03, { seed: R(9, 1) }));
+    coolers(out, a, ds, R, 'unit', 3);
+    return finish(out, a);
+  }
+  const h = T === 4 ? 0.12 : 0.14;
+  for (const run of runsOf(a.w)) {
+    let P, m;
+    if (run.length === 6) { P = CORN.slice(); m = run.map(i => (a.nb[i] ? IN_D : IN_OUT)); }
+    else {
+      P = [[0, 0]]; m = [IN_SIDE];
+      for (const i of run) { P.push(CORN[i]); m.push(a.nb[i] ? IN_D : IN_OUT); }
+      P.push(CORN[(run[run.length - 1] + 1) % 6]); m.push(IN_SIDE);
+    }
+    if (T === 6 && run.length === 6) out.push(shells(a, P, m, R(7, 7)));
+    else out.push(slab(a, P, m, h, T >= 5 ? 'board' : 'fans', R(run[0], 6), run));
+  }
+  if (T === 4) coolers(out, a, ds, R, 'tower', 2);
+  else if (T === 5) coolers(out, a, ds, R, 'tower', 1);
+  if (T >= 5) for (let i = 0; i < 3; i++) // conduits over the lane to the next tile, drawn by the tile above the lane
+    if (a.w[i] === 'D' && a.nb[i] && a.nbT[i] >= 4) {
+      const A = CORN[i], B = CORN[(i + 1) % 6], mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+      const on = out.find(b => (b.k === 'slab' || b.k === 'shells') && b.run.includes(i));
+      if (on) out.push(mkDC(a, 'conduit', mx, my, { i, h: 0.1, seed: R(i, 8), on }));
+    }
+  return finish(out, a);
+}
+function finish(out, a) { // anything standing on a roof (or leaving it) is drawn just after that roof, back to front
+  for (const b of out) {
+    if (!b.on) continue;
+    b.wy = b.on.wy + 0.001 + (b.y + 1) * 1e-4;
+  }
+  return out;
+}
+function planSmall(out, a, i, T, R) {
+  const s0 = R(i, 0), s1 = R(i, 1), side = a.sea[i];
+  if (T === 0) {
+    const p = wpt(i, 0.4, 0.4), y = p[1] + 0.05;
+    out.push(mkDC(a, 'rack', p[0], y, { w: 0.22, h: 0.1, d: 0.08, seed: s0, steam: !!side, wedge: i }));
+    a.roofAt[i] = [p[0] + 0.04, y - 0.12];
+    return;
+  }
+  if (T === 1) {
+    const p = wpt(i, 0.36, 0.36), y = p[1] + 0.06;
+    out.push(mkDC(a, 'hall', p[0], y, { w: 0.3, h: 0.085, d: 0.12, fans: [2, 1], leds: 6, seed: s0, steam: !!side, wedge: i }));
+    const g = s1 < 0.5 ? wpt(i, 0.62, 0.14) : wpt(i, 0.14, 0.62);
+    out.push(mkDC(a, 'gen', g[0], g[1] + 0.03, { w: 0.075, h: 0.055, d: 0.05, seed: s1 }));
+    a.roofAt[i] = [p[0] + 0.05, y - 0.12];
+    return;
+  }
+  const p = wpt(i, 0.34, 0.34), y = p[1] + 0.07;
+  out.push(mkDC(a, 'hall', p[0], y, { w: 0.36, h: 0.1, d: 0.15, fans: [3, 2], leds: 8, seed: s0, wedge: i }));
+  a.roofAt[i] = [p[0] + 0.07, y - 0.15];
+  if (side) { const q = seaSpot(i, side, s1); out.push(mkDC(a, 'unit', q[0], q[1] + 0.04, { w: 0.1, h: 0.14, d: 0.07, seed: s1, wedge: i })); }
+}
+function coolers(out, a, ds, R, kind, cap) { // cooling where the sea is: units on campus roofs, towers from hyperscale up
+  const slabOf = i => out.find(b => (b.k === 'slab' || b.k === 'shells') && b.run.includes(i));
+  let n = 0;
+  const order = ds.filter(i => a.sea[i]).sort((x, y) => CORN[(y + 1) % 6][1] - CORN[(x + 1) % 6][1]);
+  for (const i of order) {
+    if (n >= cap) break;
+    const s = slabOf(i); if (!s) continue;
+    const q = seaSpot(i, a.sea[i], R(i, 3));
+    if (!inside(s.fp, q[0], q[1])) continue;
+    if (kind === 'unit') out.push(mkDC(a, 'unit', q[0], q[1] - s.h + 0.03, { w: 0.09, h: 0.12, d: 0.06, seed: R(i, 4), on: s, wedge: i }));
+    else out.push(mkDC(a, 'tower', q[0], q[1] - s.h + 0.02, { rb: 0.085, rw: 0.054, rt: 0.064, H: 0.3, seed: R(i, 4), on: s, wedge: i }));
+    n++;
+  }
+}
+function wallsOf(fp, h, base) { // the walls that face the viewer, back to front, with a shade for each
+  const N = normals(fp), walls = [];
+  for (let k = 0; k < fp.length; k++) {
+    if (N[k][1] < 0.02) continue;
+    const A = fp[k], B = fp[(k + 1) % fp.length];
+    walls.push({ A, B, n: N[k], f: 1 - 0.24 * Math.max(0, N[k][0]) + 0.06 * Math.max(0, -N[k][0]), my: (A[1] + B[1]) / 2 });
+  }
+  walls.sort((p, q) => p.my - q.my);
+  return walls;
+}
+function ledsOn(walls, h, step) {
+  const out = [];
+  let run = 0;
+  for (const w of walls) {
+    const dx = w.B[0] - w.A[0], dy = w.B[1] - w.A[1], len = Math.hypot(dx, dy), n = Math.max(1, Math.floor(len / step));
+    for (let j = 0; j < n; j++) { const u = (j + 0.5) / n; out.push([w.A[0] + dx * u, w.A[1] + dy * u - h * 0.55, run + u * len]); }
+    run += len;
+  }
+  return out;
+}
+function slab(a, P, m, h, roof, seed, run) {
+  const fp = inset(P, m), walls = wallsOf(fp, h);
+  let front = -9; for (const p of fp) front = Math.max(front, p[1]);
+  const b = mkDC(a, 'slab', 0, front, { fp, h, roof, seed, run, walls, leds: ledsOn(walls, h, 0.07) });
+  // pale roofs carry a grid of fans; circuit roofs a die with traces running out to pads
+  b.lamps = [];
+  if (roof === 'fans') b.strips = run.length === 1 && a.T === 3 ? wedgeStrip(fp, run[0]) : rowsOn(fp, 0.31, 0.1);
+  else if (roof === 'board') b.board = circuit(fp, b.id);
+  // sodium lamps along the fence (edges that face open ground) and down the lanes, on the near and side sides only
+  const N = normals(P);
+  for (let k = 0; k < P.length; k++) {
+    const lane = Math.abs(m[k] - IN_ROAD) < 1e-6;
+    if ((m[k] < IN_SIDE - 1e-6 && !(lane && k === 0)) || N[k][1] < -0.35) continue;
+    const A = P[k], B = P[(k + 1) % P.length], len = Math.hypot(B[0] - A[0], B[1] - A[1]), n = Math.max(1, Math.round(len / 0.34));
+    for (let j = 0; j < n; j++) {
+      const u = (j + 0.5) / n, off = m[k] * 0.42;
+      b.lamps.push([A[0] + (B[0] - A[0]) * u - N[k][0] * off, A[1] + (B[1] - A[1]) * u - N[k][1] * off]);
+    }
+  }
+  for (const i of run) { const c = wpt(i, 0.4, 0.4); a.roofAt[i] = [c[0], c[1] - h]; }
+  return b;
+}
+function wedgeStrip(fp, i) { // one row of fans along a campus hall, parallel to the tile's edge
+  for (let k = 0; k < 4; k++) {
+    const u = 0.42 - k * 0.04, v = 0.14 + k * 0.02, A = wpt(i, u, v), B = wpt(i, v, u);
+    if (inside(fp, A[0], A[1]) && inside(fp, B[0], B[1]) && edgeDist(fp, A[0], A[1]) > 0.045 && edgeDist(fp, B[0], B[1]) > 0.045) return [[A[0], A[1], B[0], B[1]]];
+  }
+  return [];
+}
+function rowsOn(fp, step, margin) { // level rows across a roof, each cut to the roof's shape
+  let y0 = 9, y1 = -9; for (const p of fp) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
+  const out = [], n = Math.max(1, Math.floor((y1 - y0 - 0.12) / step)), gap = (y1 - y0 - (n - 1) * step) / 2;
+  for (let r = 0; r < n; r++) {
+    const y = y0 + gap + r * step, xs = [];
+    for (let k = 0; k < fp.length; k++) { const a = fp[k], b = fp[(k + 1) % fp.length]; if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1])); }
+    xs.sort((p, q) => p - q);
+    for (let j = 0; j + 1 < xs.length; j += 2) { const x0 = xs[j] + margin, x1 = xs[j + 1] - margin; if (x1 - x0 > 0.15) out.push([x0, y, x1, y]); }
+  }
+  return out;
+}
+function circuit(fp, id) {
+  const c0 = centroid(fp), c = inside(fp, c0[0], c0[1]) ? c0 : fp[0].map((v, k) => (v + fp[2][k]) / 2);
+  let span = 0; for (const p of fp) span = Math.max(span, Math.hypot(p[0] - c[0], p[1] - c[1]));
+  const die = Math.min(0.13, span * 0.28), traces = [], vias = [];
+  const ok = (x, y) => inside(fp, x, y) && edgeDist(fp, x, y) > 0.04;
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let k = 0;
+  for (const [sx, sy] of sides) for (let j = 0; j < 3; j++, k++) {
+    const r = (q) => hh(id, k * 7 + q), off = (j - 1) * die * 0.55;
+    let x = c[0] + sx * die + (sy ? off : 0), y = c[1] + sy * die * 0.8 + (sx ? off : 0);
+    const pts = [[x, y]];
+    const turn = r(1) < 0.5 ? 1 : -1, l1 = 0.06 + r(2) * 0.12, l2 = 0.04 + r(3) * 0.09, l3 = 0.05 + r(4) * 0.14;
+    const legs = [[sx, sy, l1], [sx * 0.7 - sy * 0.7 * turn, sy * 0.7 + sx * 0.7 * turn, l2], [sx, sy, l3]];
+    for (const [dx, dy, l] of legs) {
+      const nx = x + dx * l, ny = y + dy * l;
+      if (!ok(nx, ny)) break;
+      x = nx; y = ny; pts.push([x, y]);
+    }
+    if (pts.length > 1) { let len = 0; for (let q = 1; q < pts.length; q++) len += Math.hypot(pts[q][0] - pts[q - 1][0], pts[q][1] - pts[q - 1][1]); traces.push({ pts, len, ph: r(5) }); }
+  }
+  for (let q = 0; q < 14; q++) { const x = c[0] + (hh(id, 300 + q) - 0.5) * span * 1.7, y = c[1] + (hh(id, 400 + q) - 0.5) * span * 1.5; if (ok(x, y) && Math.hypot(x - c[0], y - c[1]) > die * 1.6) vias.push([x, y]); }
+  return { c, die, traces, vias };
+}
+function shells(a, P, m, seed) { // a matrioshka: a hall shaped like the tile, with smaller ones stacked on it, like layers of an onion
+  const base = slab(a, P, m, 0.1, 'none', seed, [0, 1, 2, 3, 4, 5]);
+  base.k = 'shells';
+  const layers = [], hs = [0.09, 0.09, 0.07], rs = [0.7, 0.48, 0.27];
+  let y = -0.1;
+  for (let j = 0; j < 3; j++) {
+    const fp = hexPts(rs[j], 0, y), h = hs[j], walls = wallsOf(fp, h);
+    layers.push({ fp, h, walls, leds: ledsOn(walls, h, 0.05), fins: rs[j] });
+    y -= h;
+  }
+  base.layers = layers; base.top = y; base.fins = [];
+  for (let j = 0; j < 3; j++) { // radiator fins on each terrace, between a layer's edge and the next one's foot
+    const r1 = rs[j] + 0.025, r0 = j ? rs[j - 1] * 0.84 : 0.76, yy = j ? layers[j - 1].fp[0][1] - layers[j - 1].h : -0.1, n = 30 - j * 8;
+    for (let q = 0; q < n; q++) { const ang = (q + 0.5) / n * Math.PI * 2, ca = Math.cos(ang), sa = Math.sin(ang); base.fins.push([j, ca * r1, yy + sa * r1, ca * r0, yy + sa * r0]); }
+  }
+  return base;
+}
+
+/* ---------- data centres: drawing ---------- */
+function poly(ctx, P, dy) { ctx.beginPath(); P.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1] - (dy || 0)) : ctx.moveTo(p[0], p[1] - (dy || 0)))); ctx.closePath(); }
+function beat(env) { return !env.motion || Math.sin(env.t * 5) > 0; } // one shared beat, so a hot cluster reads as one alarm
+function ledAlpha(env, ph, seed) { return env.motion ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(env.t * 3 - ph * 9 + seed * 9)) : 0.9; }
+function steam(ctx, x, y, n, rise, r0, r1, seed, env, spread) {
+  for (let k = 0; k < n; k++) {
+    const ph = ((env.motion ? env.t * 0.22 : 0.3) + seed + k / n) % 1;
+    ctx.globalAlpha = 0.62 * (1 - ph) * Math.min(1, ph * 6 + 0.2); ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.arc(x + (spread || 0) * ph + Math.sin(ph * 5 + seed * 9) * 0.012, y - ph * rise, r0 + ph * (r1 - r0), 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function topPt(b, fx, fy) { // a point on a box's top face: fx across, fy back
+  const dy = b.d * DEPTH; return [b.x - b.w / 2 + b.w * fx + b.d * fy, b.y - b.h - dy * fy];
+}
+function fan(ctx, x, y, r, sq) {
+  ctx.fillStyle = RIM; ctx.beginPath(); ctx.ellipse(x, y, r, r * sq, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = FAN; ctx.beginPath(); ctx.ellipse(x, y, r * 0.66, r * 0.66 * sq, 0, 0, 7); ctx.fill();
+}
+function drawRack(ctx, b, env, night) {
+  const hot = b.a.hot, on = beat(env), x = b.x, y = b.y, w = b.w, h = b.h;
+  if (night) {
+    if (hot) { const P = [[x - w / 2, y], [x + w / 2, y], topPt(b, 1, 0), topPt(b, 1, 1), topPt(b, 0, 1), topPt(b, 0, 0)]; hotRing(ctx, P, 0, on); }
+    for (let k = 0; k < 4; k++) {
+      ctx.globalAlpha = hot ? (on ? 1 : 0.3) : ledAlpha(env, k * 0.09, b.seed);
+      ctx.fillStyle = hot ? HOT : LED_NIGHT; ctx.beginPath(); ctx.arc(x - w * 0.33 + k * w * 0.22, y - h * 0.45, hot ? 0.022 : 0.016, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1; return;
+  }
+  boxFaces(ctx, x, y, w, h, b.d, WALL, shade(WALL, 0.78), TOP);
+  const f = topPt(b, 0.62, 0.5); fan(ctx, f[0], f[1], 0.026, 0.55);
+  for (let k = 0; k < 4; k++) {
+    ctx.globalAlpha = hot ? (on ? 1 : 0.35) : ledAlpha(env, k * 0.09, b.seed);
+    ctx.fillStyle = hot ? HOT : LED; ctx.beginPath(); ctx.arc(x - w * 0.33 + k * w * 0.22, y - h * 0.45, 0.013, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (b.steam) { const s = topPt(b, 0.3, 0.5); steam(ctx, s[0], s[1], 2, 0.16, 0.022, 0.05, b.seed, env); }
+}
+function drawHall(ctx, b, env, night) {
+  const hot = b.a.hot, on = beat(env), x = b.x, y = b.y, w = b.w, h = b.h, n = b.leds;
+  if (night) {
+    if (hot) { const P = [[x - w / 2, y], [x + w / 2, y], topPt(b, 1, 0), topPt(b, 1, 1), topPt(b, 0, 1), topPt(b, 0, 0)]; hotRing(ctx, P, 0, on); }
+    for (let k = 0; k < n; k++) {
+      ctx.globalAlpha = hot ? (on ? 1 : 0.3) : ledAlpha(env, k * 0.06, b.seed);
+      ctx.fillStyle = hot ? HOT : LED_NIGHT; ctx.beginPath(); ctx.arc(x - w * 0.4 + k * w * 0.8 / (n - 1), y - h * 0.62, hot ? 0.018 : 0.013, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1; return;
+  }
+  boxFaces(ctx, x, y, w, h, b.d, WALL, shade(WALL, 0.78), ROOF_HALL);
+  ctx.fillStyle = ROOF_EDGE; // the roof's lit near edge
+  ctx.beginPath(); ctx.moveTo(x - w / 2, y - h); ctx.lineTo(x + w / 2, y - h); ctx.lineTo(x + w / 2 + 0.012, y - h - 0.007); ctx.lineTo(x - w / 2 + 0.012, y - h - 0.007); ctx.closePath(); ctx.fill();
+  const [cols, rows] = b.fans;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) { const p = topPt(b, (c + 0.5) / cols, (r + 0.5) / rows); fan(ctx, p[0], p[1], Math.min(0.03, b.w / cols * 0.3), 0.55); }
+  ctx.fillStyle = '#1E2230'; ctx.fillRect(x + w * 0.28, y - h * 0.62, w * 0.12, h * 0.62); // a door
+  for (let k = 0; k < n; k++) {
+    ctx.globalAlpha = hot ? (on ? 1 : 0.35) : ledAlpha(env, k * 0.06, b.seed);
+    ctx.fillStyle = hot ? HOT : LED; ctx.beginPath(); ctx.arc(x - w * 0.4 + k * w * 0.8 / (n - 1), y - h * 0.62, 0.011, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (b.steam) { const s = topPt(b, 0.2, 0.5); steam(ctx, s[0], s[1], 2, 0.18, 0.024, 0.055, b.seed, env); }
+}
+function drawGen(ctx, b, env, night) {
+  if (night) return;
+  boxFaces(ctx, b.x, b.y, b.w, b.h, b.d, '#3A4256', '#2E3546', '#6B7590');
+  ctx.fillStyle = '#2A3040'; ctx.fillRect(b.x + b.w * 0.18, b.y - b.h - 0.05, 0.012, 0.05);
+  ctx.fillStyle = '#1E2230'; for (let k = 0; k < 3; k++) ctx.fillRect(b.x - b.w * 0.36 + k * 0.02, b.y - b.h * 0.7, 0.01, b.h * 0.45);
+}
+function drawUnit(ctx, b, env, night) { // a boxy cooling tower, steaming
+  if (night) { ctx.globalAlpha = 0.16; ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(b.x + b.d / 2, b.y - b.h - 0.08, 0.07, 0, 7); ctx.fill(); ctx.globalAlpha = 1; return; }
+  boxFaces(ctx, b.x, b.y, b.w, b.h, b.d, CONCRETE, shade(CONCRETE, 0.8), shade(CONCRETE, 1.1));
+  ctx.fillStyle = 'rgba(60,70,90,.35)'; for (let k = 0; k < 3; k++) ctx.fillRect(b.x - b.w * 0.36, b.y - b.h * (0.78 - k * 0.24), b.w * 0.72, 0.008);
+  const p = topPt(b, 0.5, 0.5); fan(ctx, p[0], p[1], b.w * 0.3, 0.55);
+  steam(ctx, p[0], p[1] - 0.01, 3, 0.26, 0.03, 0.075, b.seed, env, 0.03);
+}
+function drawTower(ctx, b, env, night) { // a cooling tower with a waist, and its plume
+  const x = b.x, y = b.y, H = b.H, rb = b.rb, rw = b.rw, rt = b.rt, ty = y - H;
+  if (night) { // the plume catches the campus lights
+    ctx.globalAlpha = 0.13; ctx.fillStyle = '#FFE9D2';
+    ctx.beginPath(); ctx.ellipse(x + 0.04, ty - 0.12, 0.1, 0.13, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    beaconAt(ctx, x, ty - 0.004, b.seed, env, true); return;
+  }
+  ctx.fillStyle = '#C3C9D5';
+  ctx.beginPath(); ctx.moveTo(x - rb, y); ctx.quadraticCurveTo(x - rw * 0.7, y - H * 0.62, x - rt, ty); ctx.lineTo(x + rt, ty); ctx.quadraticCurveTo(x + rw * 0.7, y - H * 0.62, x + rb, y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(70,78,100,.28)'; // shade on the far side
+  ctx.beginPath(); ctx.moveTo(x + rb * 0.1, y); ctx.quadraticCurveTo(x + rw * 0.25, y - H * 0.62, x + rt * 0.2, ty); ctx.lineTo(x + rt, ty); ctx.quadraticCurveTo(x + rw * 0.7, y - H * 0.62, x + rb, y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#E3E7EE'; ctx.beginPath(); ctx.ellipse(x, ty, rt, rt * 0.32, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#4A5068'; ctx.beginPath(); ctx.ellipse(x, ty + 0.002, rt * 0.82, rt * 0.24, 0, 0, 7); ctx.fill();
+  steam(ctx, x, ty - 0.02, 4, 0.42, 0.045, 0.12, b.seed, env, 0.08);
+}
+function beaconAt(ctx, x, y, seed, env, night) { // a red light like the towns' beacons, a little smaller
+  const on = !env.motion || Math.sin(env.t * 4 + seed * 20) > 0;
+  if (night) { if (!on) return; ctx.globalAlpha = 0.9; ctx.fillStyle = HOT; ctx.beginPath(); ctx.arc(x, y, 0.03, 0, 7); ctx.fill(); ctx.globalAlpha = 1; return; }
+  ctx.fillStyle = on ? HOT : HOT_OFF; ctx.beginPath(); ctx.arc(x, y, 0.018, 0, 7); ctx.fill();
+}
+function drawMast(ctx, b, env, night) { // the substation: transformers and a lattice mast with a red light
+  const x = b.x, y = b.y, H = 0.42;
+  if (night) { beaconAt(ctx, x, y - H, b.seed, env, true); return; }
+  boxFaces(ctx, x - 0.06, y + 0.01, 0.06, 0.05, 0.04, '#5A6278', '#474E62', '#7C849A');
+  boxFaces(ctx, x + 0.05, y + 0.02, 0.06, 0.05, 0.04, '#5A6278', '#474E62', '#7C849A');
+  ctx.strokeStyle = '#2A3040'; ctx.lineWidth = 0.009;
+  ctx.beginPath(); ctx.moveTo(x - 0.035, y); ctx.lineTo(x - 0.006, y - H); ctx.moveTo(x + 0.035, y); ctx.lineTo(x + 0.006, y - H);
+  for (let k = 1; k < 6; k++) { const f0 = (k - 1) / 6, f1 = k / 6, w0 = 0.035 - 0.029 * f0, w1 = 0.035 - 0.029 * f1; ctx.moveTo(x - w0, y - H * f0); ctx.lineTo(x + w1, y - H * f1); ctx.moveTo(x + w0, y - H * f0); ctx.lineTo(x - w1, y - H * f1); }
+  ctx.moveTo(x - 0.06, y - H * 0.78); ctx.lineTo(x + 0.06, y - H * 0.78); ctx.stroke();
+  beaconAt(ctx, x, y - H, b.seed, env, false);
+}
+function prism(ctx, fp, h, walls, wallCol, roofCol) {
+  for (const w of walls) {
+    ctx.fillStyle = shade(wallCol, w.f);
+    ctx.beginPath(); ctx.moveTo(w.A[0], w.A[1]); ctx.lineTo(w.B[0], w.B[1]); ctx.lineTo(w.B[0], w.B[1] - h); ctx.lineTo(w.A[0], w.A[1] - h); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = roofCol; poly(ctx, fp, h); ctx.fill();
+}
+function wallLeds(ctx, leds, env, seed, hot, on, night) {
+  for (const l of leds) {
+    ctx.globalAlpha = hot ? (on ? 1 : 0.3) : ledAlpha(env, l[2] * 0.6, seed);
+    ctx.fillStyle = hot ? HOT : night ? LED_NIGHT : LED;
+    ctx.fillRect(l[0] - 0.009, l[1] - 0.006, 0.018, 0.012);
+  }
+  ctx.globalAlpha = 1;
+}
+function seams(ctx, walls, h, col, alpha, width) { // a line of light along the top of each front wall
+  ctx.globalAlpha = alpha; ctx.strokeStyle = col; ctx.lineWidth = width; ctx.beginPath();
+  for (const w of walls) { ctx.moveTo(w.A[0], w.A[1] - h); ctx.lineTo(w.B[0], w.B[1] - h); }
+  ctx.stroke(); ctx.globalAlpha = 1;
+}
+function lampsNight(ctx, lamps) {
+  for (const p of lamps) {
+    const g = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], 0.13);
+    g.addColorStop(0, 'rgba(255,170,80,.32)'); g.addColorStop(1, 'rgba(255,170,80,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p[0], p[1], 0.13, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,214,150,.95)'; ctx.beginPath(); ctx.arc(p[0], p[1] - 0.045, 0.014, 0, 7); ctx.fill();
+  }
+}
+function hotRing(ctx, fp, h, on) { // a cluster running hot: its roofs outlined in red, on the shared beat
+  ctx.globalAlpha = on ? 0.62 : 0.16; ctx.strokeStyle = HOT; ctx.lineWidth = 0.03; ctx.lineJoin = 'round';
+  poly(ctx, fp, h); ctx.stroke(); ctx.globalAlpha = 1;
+}
+function strips(ctx, list, h) { // rows of chillers, their fans drawn as dots along each row
+  if (!list || !list.length) return;
+  ctx.lineCap = 'round'; ctx.strokeStyle = STRIP; ctx.lineWidth = 0.075; ctx.beginPath();
+  for (const r of list) { ctx.moveTo(r[0], r[1] - h); ctx.lineTo(r[2], r[3] - h); }
+  ctx.stroke();
+  ctx.setLineDash([0.001, 0.085]); ctx.lineDashOffset = -0.03;
+  ctx.strokeStyle = RIM; ctx.lineWidth = 0.056; ctx.stroke();
+  ctx.strokeStyle = FAN; ctx.lineWidth = 0.034; ctx.stroke();
+  ctx.setLineDash([]); ctx.lineDashOffset = 0; ctx.lineCap = 'butt';
+}
+function stripLights(ctx, list, h, hot, on) {
+  if (!list) return;
+  ctx.fillStyle = hot ? HOT : LED_NIGHT; ctx.globalAlpha = hot ? (on ? 0.95 : 0.25) : 0.8;
+  for (const r of list) { ctx.beginPath(); ctx.arc(r[0] - 0.02, r[1] - h, 0.013, 0, 7); ctx.arc(r[2] + 0.02, r[3] - h, 0.013, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+function drawSlab(ctx, b, env, night) {
+  const hot = b.a.hot, on = beat(env), h = b.h;
+  if (night) {
+    if (hot) hotRing(ctx, b.fp, h, on);
+    seams(ctx, b.walls, h, hot ? HOT : LED_NIGHT, hot ? (on ? 0.9 : 0.25) : b.a.T === 3 ? 0.4 : 0.5, 0.012);
+    wallLeds(ctx, b.leds, env, b.seed, hot, on, true);
+    stripLights(ctx, b.strips, h, hot, on);
+    if (b.board) boardNight(ctx, b, env, hot, on);
+    lampsNight(ctx, b.lamps);
+    return;
+  }
+  prism(ctx, b.fp, h, b.walls, WALL, b.board ? BOARD : ROOF);
+  ctx.strokeStyle = ROOF_EDGE; ctx.lineWidth = 0.012; ctx.beginPath(); // the roof's near edge catches the light
+  for (const w of b.walls) { ctx.moveTo(w.A[0], w.A[1] - h); ctx.lineTo(w.B[0], w.B[1] - h); }
+  ctx.stroke();
+  strips(ctx, b.strips, h);
+  if (b.board) boardDay(ctx, b);
+  wallLeds(ctx, b.leds, env, b.seed, hot, on, false);
+  posts(ctx, b.lamps);
+}
+function posts(ctx, lamps) { ctx.fillStyle = '#20252F'; for (const p of lamps) ctx.fillRect(p[0] - 0.005, p[1] - 0.045, 0.01, 0.045); }
+function boardDay(ctx, b) {
+  const B = b.board, h = b.h;
+  ctx.strokeStyle = TRACE; ctx.lineWidth = 0.011; ctx.lineJoin = 'round';
+  for (const tr of B.traces) { ctx.beginPath(); tr.pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1] - h) : ctx.moveTo(p[0], p[1] - h))); ctx.stroke(); }
+  ctx.fillStyle = TRACE;
+  for (const tr of B.traces) { const p = tr.pts[tr.pts.length - 1]; ctx.beginPath(); ctx.arc(p[0], p[1] - h, 0.017, 0, 7); ctx.fill(); }
+  for (const v of B.vias) { ctx.beginPath(); ctx.arc(v[0], v[1] - h, 0.01, 0, 7); ctx.fill(); }
+  const d = B.die;
+  ctx.fillStyle = '#1A1E2B'; ctx.fillRect(B.c[0] - d, B.c[1] - h - d * 0.8, d * 2, d * 1.6);
+  ctx.strokeStyle = '#7C88A6'; ctx.lineWidth = 0.008; ctx.strokeRect(B.c[0] - d, B.c[1] - h - d * 0.8, d * 2, d * 1.6);
+}
+function boardNight(ctx, b, env, hot, on) {
+  const B = b.board, h = b.h, col = hot ? HOT : LED_NIGHT;
+  ctx.strokeStyle = col; ctx.lineWidth = 0.009; ctx.lineJoin = 'round'; ctx.globalAlpha = hot ? (on ? 0.6 : 0.2) : 0.42;
+  for (const tr of B.traces) { ctx.beginPath(); tr.pts.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1] - h) : ctx.moveTo(p[0], p[1] - h))); ctx.stroke(); }
+  ctx.globalAlpha = hot ? (on ? 0.9 : 0.3) : 0.75; ctx.fillStyle = col;
+  for (const tr of B.traces) { const p = tr.pts[tr.pts.length - 1]; ctx.beginPath(); ctx.arc(p[0], p[1] - h, 0.016, 0, 7); ctx.fill(); }
+  if (!hot) for (const tr of B.traces) { // data running out from the die
+    const u = ((env.motion ? env.t * 0.35 : 0.5) + tr.ph) % 1; let want = u * tr.len, p = tr.pts[0];
+    for (let q = 1; q < tr.pts.length; q++) {
+      const A = tr.pts[q - 1], C = tr.pts[q], l = Math.hypot(C[0] - A[0], C[1] - A[1]);
+      if (want <= l) { p = [A[0] + (C[0] - A[0]) * want / l, A[1] + (C[1] - A[1]) * want / l]; break; }
+      want -= l; p = C;
+    }
+    ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.arc(p[0], p[1] - h, 0.018, 0, 7); ctx.fill();
+  }
+  const d = B.die; ctx.globalAlpha = hot ? (on ? 0.7 : 0.25) : 0.55; ctx.strokeStyle = col; ctx.lineWidth = 0.012;
+  ctx.strokeRect(B.c[0] - d, B.c[1] - h - d * 0.8, d * 2, d * 1.6);
+  ctx.globalAlpha = 1;
+}
+function drawShells(ctx, b, env, night) {
+  const hot = b.a.hot, on = beat(env), h = b.h;
+  if (night) {
+    if (hot) hotRing(ctx, b.fp, h, on);
+    seams(ctx, b.walls, h, hot ? HOT : LED_NIGHT, hot ? (on ? 0.9 : 0.25) : 0.55, 0.012);
+    wallLeds(ctx, b.leds, env, b.seed, hot, on, true);
+    b.layers.forEach((L, j) => {
+      seams(ctx, L.walls, L.h, hot ? HOT : j % 2 ? VIOLET : LED_NIGHT, hot ? (on ? 0.9 : 0.25) : 0.7, 0.012);
+      wallLeds(ctx, L.leds, env, b.seed + j, hot, on, true);
+    });
+    const g = ctx.createRadialGradient(0, b.top, 0.02, 0, b.top, 0.5);
+    g.addColorStop(0, hot ? 'rgba(255,90,110,.22)' : 'rgba(138,111,209,.32)'); g.addColorStop(1, hot ? 'rgba(255,90,110,0)' : 'rgba(138,111,209,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, b.top, 0.5, 0, 7); ctx.fill();
+    lampsNight(ctx, b.lamps);
+    nightEye(ctx, b, 0, b.top, 0.1, 0.06, b.seed, env);
+    return;
+  }
+  prism(ctx, b.fp, h, b.walls, SHELL, SHELL_ROOF);
+  ctx.strokeStyle = '#5A6380'; ctx.lineWidth = 0.008; ctx.beginPath();
+  for (const f of b.fins.filter(f => f[0] === 0)) { ctx.moveTo(f[1], f[2]); ctx.lineTo(f[3], f[4]); }
+  ctx.stroke();
+  b.layers.forEach((L, j) => {
+    prism(ctx, L.fp, L.h, L.walls, shade(SHELL, 1 + j * 0.06), shade(SHELL_ROOF, 1 + j * 0.08));
+    ctx.strokeStyle = '#5A6380'; ctx.lineWidth = 0.008; ctx.beginPath();
+    for (const f of b.fins.filter(f => f[0] === j + 1)) { ctx.moveTo(f[1], f[2]); ctx.lineTo(f[3], f[4]); }
+    ctx.stroke();
+    wallLeds(ctx, L.leds, env, b.seed + j, hot, on, false);
+  });
+  wallLeds(ctx, b.leds, env, b.seed, hot, on, false);
+  posts(ctx, b.lamps);
+  drawEye(ctx, b, 0, b.top, 0.1, 0.06, b.seed, env);
+}
+function drawConduit(ctx, b, env, night) { // a covered bridge over the lane to the next tile
+  const i = b.i, A = CORN[i], B = CORN[(i + 1) % 6], ex = B[0] - A[0], ey = B[1] - A[1], el = Math.hypot(ex, ey);
+  const ux = ex / el, uy = ey / el, nx = uy, ny = -ux, half = 0.035, reach = 0.085;
+  const fp = [[b.x - ux * half - nx * reach, b.y - uy * half - ny * reach], [b.x + ux * half - nx * reach, b.y + uy * half - ny * reach],
+              [b.x + ux * half + nx * reach, b.y + uy * half + ny * reach], [b.x - ux * half + nx * reach, b.y - uy * half + ny * reach]];
+  const walls = b.walls || (b.walls = wallsOf(fp, b.h));
+  if (night) {
+    const hot = b.a.hot, on = beat(env);
+    ctx.globalAlpha = hot ? (on ? 0.9 : 0.25) : 0.75; ctx.strokeStyle = hot ? HOT : LED_NIGHT; ctx.lineWidth = 0.012;
+    ctx.beginPath(); ctx.moveTo(b.x - nx * reach, b.y - ny * reach - b.h); ctx.lineTo(b.x + nx * reach, b.y + ny * reach - b.h); ctx.stroke();
+    if (!hot && env.motion) { const u = (env.t * 0.6 + b.seed) % 1 * 2 - 1; ctx.fillStyle = LED_NIGHT; ctx.beginPath(); ctx.arc(b.x + nx * reach * u, b.y + ny * reach * u - b.h, 0.016, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1; return;
+  }
+  prism(ctx, fp, b.h, walls, WALL, BOARD);
+}
+function drawDC(ctx, b, env, night) {
+  switch (b.k) {
+    case 'rack': drawRack(ctx, b, env, night); break;
+    case 'hall': drawHall(ctx, b, env, night); break;
+    case 'gen': drawGen(ctx, b, env, night); break;
+    case 'unit': drawUnit(ctx, b, env, night); break;
+    case 'tower': drawTower(ctx, b, env, night); break;
+    case 'mast': drawMast(ctx, b, env, night); break;
+    case 'slab': drawSlab(ctx, b, env, night); break;
+    case 'shells': drawShells(ctx, b, env, night); break;
+    case 'conduit': drawConduit(ctx, b, env, night); break;
+  }
+}
+
+/* ---------- data centres: the ground ---------- */
+/* intake[j] for a sea wedge j: { side: 'a' | 'b' | 'o' (where the data centre is), T: the highest art tier it cools } */
+function intakePipe(j, side) { // from the shore it shares with the data centre, out into the water
+  if (side === 'a') return [wpt(j, 0.46, 0), wpt(j, 0.42, 0.2)];
+  if (side === 'b') return [wpt(j, 0, 0.46), wpt(j, 0.2, 0.42)];
+  return [wpt(j, 0.5, 0.5), wpt(j, 0.36, 0.36)];
+}
+function podSpots(j, side) { return side === 'b' ? [wpt(j, 0.52, 0.24), wpt(j, 0.3, 0.12)] : [wpt(j, 0.24, 0.52), wpt(j, 0.12, 0.3)]; }
+function capsule(ctx, x, y, w, hgt) { const r = hgt / 2; ctx.beginPath(); ctx.moveTo(x - w / 2 + r, y - r); ctx.lineTo(x + w / 2 - r, y - r); ctx.arc(x + w / 2 - r, y, r, -Math.PI / 2, Math.PI / 2); ctx.lineTo(x - w / 2 + r, y + r); ctx.arc(x - w / 2 + r, y, r, Math.PI / 2, Math.PI * 1.5); ctx.closePath(); }
+function drawDCGround(ctx, a) {
+  if (a.T >= 2) { // a fence along the cluster's edge
+    ctx.strokeStyle = 'rgba(214,220,234,.45)'; ctx.lineWidth = 0.012; ctx.setLineDash([0.03, 0.022]); ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      if (a.w[i] !== 'D') continue;
+      const O = [0, 0], A = CORN[i], B = CORN[(i + 1) % 6];
+      const seg = (P, Q, cx, cy) => { const k = 0.035; ctx.moveTo(P[0] + (cx - P[0]) * k, P[1] + (cy - P[1]) * k); ctx.lineTo(Q[0] + (cx - Q[0]) * k, Q[1] + (cy - Q[1]) * k); };
+      const c = wpt(i, 0.33, 0.33);
+      if (a.w[(i + 5) % 6] !== 'D') seg(O, A, c[0], c[1]);
+      if (a.w[(i + 1) % 6] !== 'D') seg(O, B, c[0], c[1]);
+      if (!a.nb[i]) seg(A, B, c[0], c[1]);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  if (!a.intake) return;
+  for (let j = 0; j < 6; j++) { // one intake for each sea wedge a data centre draws on, as the rules count them
+    const it = a.intake[j]; if (!it) continue;
+    if (it.T >= 5) for (const q of podSpots(j, it.side).slice(0, it.T >= 6 ? 2 : 1)) { // server pods, sunk in the sea
+      ctx.fillStyle = 'rgba(26,34,56,.5)'; capsule(ctx, q[0], q[1], 0.15, 0.05); ctx.fill();
+    }
+    const [A, B] = intakePipe(j, it.side);
+    ctx.lineCap = 'round'; ctx.strokeStyle = '#2B3142'; ctx.lineWidth = 0.032; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
+    ctx.strokeStyle = '#5C6680'; ctx.lineWidth = 0.01; ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.fillStyle = '#2B3142'; ctx.fillRect(B[0] - 0.03, B[1] - 0.03, 0.06, 0.06);
+    ctx.strokeStyle = 'rgba(240,252,255,.75)'; ctx.lineWidth = 0.016; // foam where the water is drawn in
+    ctx.beginPath(); ctx.arc(B[0], B[1], 0.065, Math.PI * 1.1, Math.PI * 1.6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(B[0], B[1], 0.065, Math.PI * 0.1, Math.PI * 0.6); ctx.stroke();
+  }
+}
+function drawDCGroundNight(ctx, a, env) {
+  if (a.intake) for (let j = 0; j < 6; j++) {
+    const it = a.intake[j]; if (!it) continue;
+    const B = intakePipe(j, it.side)[1];
+    ctx.globalAlpha = 0.85; ctx.fillStyle = LED_NIGHT; ctx.beginPath(); ctx.arc(B[0], B[1], 0.014, 0, 7); ctx.fill();
+    if (it.T >= 5) podSpots(j, it.side).slice(0, it.T >= 6 ? 2 : 1).forEach((q, k) => {
+      const g = ctx.createRadialGradient(q[0], q[1], 0.01, q[0], q[1], 0.13); // light through the water
+      g.addColorStop(0, 'rgba(127,230,218,.34)'); g.addColorStop(1, 'rgba(127,230,218,0)');
+      ctx.globalAlpha = 0.75 + (env.motion ? 0.25 * Math.sin(env.t * 1.2 + k * 2 + j) : 0); ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(q[0], q[1], 0.13, 0.08, 0, 0, 7); ctx.fill();
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = LED_NIGHT; ctx.lineWidth = 0.008; capsule(ctx, q[0], q[1], 0.15, 0.05); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+  if (!a.roofAt) return;
+  for (let i = 0; i < 6; i++) { // heat rising off a wedge that is running hot and will fall to meadow
+    if (a.w[i] !== 'D' || !(a.d[i] > 0) || !a.roofAt[i]) continue;
+    const [x, y] = a.roofAt[i], d = a.d[i], tt = env.motion ? env.t : 0;
+    ctx.strokeStyle = `rgba(255,112,84,${Math.min(0.95, 0.45 + d * 0.18)})`; ctx.lineWidth = 0.022; ctx.lineCap = 'round';
+    for (let k = 0; k < 3; k++) {
+      const x0 = x + (k - 1) * 0.07, ph = tt * 5 + k * 2.1 + a.sid;
+      ctx.beginPath();
+      for (let s = 0; s <= 6; s++) { const yy = y - 0.02 - s * 0.03, xx = x0 + Math.sin(ph + s * 1.25) * 0.016; s ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+}
+
+const Art = { TIERS, SHARE, tierIndex, variedTiers, planTile, drawBuilding, drawTownGround,
+  DC_TIERS, dcTierIndex, dcVariedTiers, planDC, drawDC, drawDCGround, drawDCGroundNight };
 root.Art = Art;
 })(typeof window !== 'undefined' ? window : this);
 </script>
@@ -1906,7 +2540,7 @@ const cv = $('board'), ctx = cv.getContext('2d');
 const slotsEl = $('slots'), hintEl = $('hint'), toastsEl = $('toasts'), scrim = $('scrim'), sheet = $('sheet');
 
 let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {};
-let townArt = new Map(), townList = []; // each town tile's art tier and buildings, and every building back to front (planned in refresh)
+let townArt = new Map(), dcArt = new Map(), artList = []; // each town and data-centre tile's art, and every building and piece back to front (planned in refresh)
 let cam = { x: 0, y: 0, s: 46 };
 let W = 0, H = 0, dpr = 1;
 const ui = { sel: { from: 'offer', i: 0 }, ghost: null, mode: 'place', clearKey: null, valid: [], undo: [], floaters: [], pointerW: [0, 0], dirty: true, last: 0, cy: 0, sheetAt: 0, focus: null };
@@ -1965,7 +2599,7 @@ function refresh() {
     currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) });
     for (const t of area) (tint[t.id] || (tint[t.id] = new Set())).add(col);
   }
-  planTowns();
+  planArt();
   if (ui.ghost && state.map[S.key(ui.ghost.q, ui.ghost.r)] && !S.isWildGround(state.map[S.key(ui.ghost.q, ui.ghost.r)])) ui.ghost = null;
   if (ui.mode === 'ferry' && state.ferries <= 0) ui.mode = 'place';
   if (ui.mode === 'builder' && state.builders <= 0) { ui.mode = 'place'; ui.clearKey = null; }
@@ -1973,10 +2607,19 @@ function refresh() {
   renderTray(); renderHud(); updateTools(); updateHint();
   ui.dirty = true;
 }
-/* town art (src/art.js): each town's tiles take art by its size, the tallest at its heart (Art.variedTiers), and a tile
-   takes the art of the town that owns most of its town wedges. Planned when the map changes; drawing only reads it. */
+/* the art (src/art.js), planned when the map changes; drawing only reads it. Town buildings and data-centre pieces
+   share one list, sorted by world base y and then x, so halls, towers and houses overlap back to front. */
+function planArt() {
+  townArt = new Map(); dcArt = new Map(); artList = [];
+  planTowns(); planDataCentres();
+  artList.sort((a, b) => a.wy - b.wy || a.wx - b.wx);
+  const last = new Map(); // vines on a tile's town wedges go on top of whichever of its buildings is drawn last
+  for (const b of artList) last.set(b.tile.id, b);
+  for (const b of last.values()) b.vines = true;
+}
+/* town art: each town's tiles take art by its size, the tallest at its heart (Art.variedTiers), and a tile
+   takes the art of the town that owns most of its town wedges */
 function planTowns() {
-  townArt = new Map(); townList = [];
   const towns = new Map(), own = [];
   for (const k in state.map) {
     const tl = state.map[k]; if (tl.kind === 'r') continue;
@@ -2001,12 +2644,52 @@ function planTowns() {
     const art = { id: tl.id, sid: tl.id, q: tl.q, r: tl.r, c: hexCenter(tl.q, tl.r), w: tl.w, ti: tierAt.get(cell).get(tl.id), hn };
     art.plan = Art.planTile(art);
     townArt.set(tl.id, art);
-    for (const b of art.plan) { b.tile = tl; townList.push(b); }
+    for (const b of art.plan) { b.tile = tl; artList.push(b); }
   }
-  townList.sort((a, b) => a.wy - b.wy || a.wx - b.wx);
-  const last = new Map(); // vines on a tile's town wedges go on top of whichever of its buildings is drawn last
-  for (const b of townList) last.set(b.tile.id, b);
-  for (const b of last.values()) b.vines = true;
+}
+/* data-centre art: a data centre grows out through seven sizes by its wedges, varied across its tiles like a town's
+   (Art.dcVariedTiers), and a tile takes the size of the data centre that owns most of its data-centre wedges. Each sea
+   wedge a data centre draws on, as the rules count cooling, gets an intake. Ghosts keep the old slab (drawDataCentre). */
+function planDataCentres() {
+  const dcs = new Map(), own = new Map(), sizeAt = new Map();
+  for (const k in state.map) {
+    const tl = state.map[k]; if (tl.kind === 'r') continue;
+    const info = view.info[tl.id] || [], count = new Map();
+    for (let i = 0; i < 6; i++) if (tl.w[i] === 'D' && info[i]) count.set(info[i], (count.get(info[i]) || 0) + 1);
+    let best = null;
+    for (const [cell, n] of count) {
+      (dcs.get(cell) || dcs.set(cell, []).get(cell)).push([tl.q, tl.r, n, tl.id]);
+      if (!best || n > count.get(best) || (n === count.get(best) && cell.size > best.size)) best = cell;
+    }
+    if (best) own.set(tl.id, best);
+  }
+  for (const [cell, dc] of dcs) {
+    const sizes = Art.dcVariedTiers(dc, Art.dcTierIndex(cell.size));
+    dc.forEach((c, j) => { if (own.get(c[3]) === cell) sizeAt.set(c[3], sizes[j]); });
+  }
+  for (const k in state.map) {
+    const tl = state.map[k]; if (tl.kind === 'r') continue;
+    const info = view.info[tl.id] || [], ti = sizeAt.get(tl.id) || 0;
+    const a = { sid: tl.id, c: hexCenter(tl.q, tl.r), w: tl.w, d: tl.d, ti, hot: false, sea: [], nb: [], nbT: [], intake: [] };
+    let any = false;
+    for (let i = 0; i < 6; i++) {
+      const n0 = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])], nb = n0 && n0.kind !== 'r' ? n0 : null;
+      const f = nb ? nb.w[(i + 3) % 6] : null; // the wedge across edge i, on a real tile
+      if (tl.w[i] === 'D') { // where its sea is, on the three sides seaBeside() checks, and whether the hall across edge i is the same data centre
+        any = true;
+        a.sea[i] = tl.w[(i + 5) % 6] === 'S' ? 'a' : tl.w[(i + 1) % 6] === 'S' ? 'b' : f === 'S' ? 'o' : null;
+        a.nb[i] = f === 'D' && !!info[i] && (view.info[nb.id] || [])[(i + 3) % 6] === info[i];
+        a.nbT[i] = a.nb[i] ? sizeAt.get(nb.id) || 0 : -1;
+      } else if (tl.w[i] === 'S') { // a sea wedge touching a data centre on one of those sides cools it, so it gets an intake
+        const side = tl.w[(i + 5) % 6] === 'D' ? 'a' : tl.w[(i + 1) % 6] === 'D' ? 'b' : f === 'D' ? 'o' : null;
+        if (side) { a.intake[i] = { side, T: side === 'o' ? sizeAt.get(nb.id) || 0 : ti }; any = true; }
+      }
+    }
+    if (!any) continue;
+    const cell = own.get(tl.id); if (cell) a.hot = cell.cool < cell.need;
+    for (const b of Art.planDC(a)) { b.dc = true; b.tile = tl; artList.push(b); }
+    dcArt.set(tl.id, a);
+  }
 }
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify({ state, cam })); } catch (e) { /* storage may be unavailable */ }
@@ -2675,9 +3358,9 @@ function drawHeat(tl, i, d, t) {
   }
   ctx.lineCap = 'butt';
 }
-/* a data-centre wedge: a dark slab with a row of lights that ripple, and steam where it touches sea.
-   While its cluster runs hot, every light turns red and blinks in step with the rest of the cluster, and the slab glows red.
-   At night only the lights are drawn again, glowing. */
+/* the old data-centre wedge, kept for dreams as ghosts keep their cottages; real data centres draw through the
+   data-centre art (planDataCentres). A dark slab with a row of lights that ripple, and steam where it touches sea; at
+   night only the lights are drawn again, glowing. It turns red while its cluster runs hot, which a dream never does. */
 function seaBeside(tl, i) {
   if (tl.w[(i + 1) % 6] === 'S' || tl.w[(i + 5) % 6] === 'S') return true;
   const nb = state.map[S.key(tl.q + S.DIRS[i][0], tl.r + S.DIRS[i][1])];
@@ -2720,7 +3403,8 @@ function drawTiles(t) {
       const col = wedgeColor(tl.w[i], info[i], i, t);
       wedgePath(i); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1.6 / cam.s; ctx.strokeStyle = col; ctx.stroke();
     }
-    const art = townArt.get(tl.id); // a town tile's buildings come later, in drawBuildings(); its ground is drawn here
+    // a town or data-centre tile's buildings come later, in drawBuildings(); its ground is drawn here
+    const art = townArt.get(tl.id), dca = dcArt.get(tl.id);
     if (detail) for (let i = 0; i < 6; i++) {
       const w = tl.w[i];
       if (w === 'H') { if (!art) drawHamlet(tl, i, t, L, false); }
@@ -2728,11 +3412,12 @@ function drawTiles(t) {
       else if (w === 'J') drawJungle(tl, i, info[i], t, L);
       else if (w === 'S') drawSea(tl, i, info[i], t, L);
       else if (w === 'M') drawMeadow(tl, i);
-      else if (w === 'D') drawDataCentre(tl, i, info[i], t, false);
+      else if (w === 'D') { if (!dca) drawDataCentre(tl, i, info[i], t, false); }
       if (tl.d[i] > 0 && (w === 'F' || (w === 'H' && !art))) drawVines(tl, i, tl.d[i]);
-      else if (tl.d[i] > 0 && w === 'D') drawHeat(tl, i, tl.d[i], t);
+      else if (tl.d[i] > 0 && w === 'D' && !dca) drawHeat(tl, i, tl.d[i], t);
     }
     if (detail && art) Art.drawTownGround(ctx, art);
+    if (detail && dca) Art.drawDCGround(ctx, dca); // fences, sea intakes and the pods under the sea
     if (rumor && (tl.dream || tl.door)) { // a dream: faint scanlines that drift down, violet from a data centre, crimson from a door
       ctx.save(); hexPath(0.97); ctx.clip();
       ctx.strokeStyle = tl.door ? 'rgba(194,59,90,.6)' : 'rgba(110,79,208,.55)'; ctx.lineWidth = 1 / cam.s;
@@ -2751,19 +3436,20 @@ function drawNight(t) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = 'rgba(22,18,50,.44)'; ctx.fillRect(0, 0, W, H);
   if (cam.s < 16) return;
-  const pad = cam.s * 1.2;
+  const pad = cam.s * 1.2, env = { L: state.level, t: RM ? 0 : t, motion: !RM, pw: ui.pointerW };
   ctx.globalCompositeOperation = 'lighter';
   for (const k in state.map) {
     const tl = state.map[k], c = hexCenter(tl.q, tl.r), [sx, sy] = toScreen(c[0], c[1]);
     if (sx < -pad || sx > W + pad || sy < -pad || sy > H + pad) continue;
     setT(c[0], c[1]);
-    const info = view.info[tl.id] || [];
+    const info = view.info[tl.id] || [], dca = dcArt.get(tl.id);
     for (let i = 0; i < 6; i++) {
       if (tl.w[i] === 'H') { if (!townArt.has(tl.id)) drawHamlet(tl, i, t, state.level, true); }
-      else if (tl.w[i] === 'D') drawDataCentre(tl, i, info[i], t, true);
+      else if (tl.w[i] === 'D') { if (!dca) drawDataCentre(tl, i, info[i], t, true); }
     }
+    if (dca) Art.drawDCGroundNight(ctx, dca, env); // intake lights, pods glowing under the sea, and heat over the roofs
   }
-  drawBuildings(t, true); // the towns' lit windows, beacons and seams
+  drawBuildings(t, true); // the towns' lit windows, beacons and seams, and the data centres' lights
   ctx.globalCompositeOperation = 'source-over';
 }
 function drawCurrentTint() {
@@ -2922,16 +3608,16 @@ function drawValid(over) {
     ctx.setLineDash([5 / cam.s, 4 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   }
 }
-function drawBuildings(t, night) { // every visible town building as one list, back to front
-  if (cam.s < 16 || !townList.length) return;
+function drawBuildings(t, night) { // every visible town building and data-centre piece as one list, back to front
+  if (cam.s < 16 || !artList.length) return;
   const env = { L: state.level, t: RM ? 0 : t, motion: !RM, pw: ui.pointerW };
   // buildings rise up to about 1.9 hex radii above their tile's centre, so keep tiles up to 2 radii below the screen
   const padX = cam.s * 1.2, top = -cam.s * 1.2, bottom = H + cam.s * 2;
-  for (const b of townList) {
+  for (const b of artList) {
     const [sx, sy] = toScreen(b.tc[0], b.tc[1]);
     if (sx < -padX || sx > W + padX || sy < top || sy > bottom) continue;
     setT(b.tc[0], b.tc[1]);
-    Art.drawBuilding(ctx, b, env, night);
+    if (b.dc) Art.drawDC(ctx, b, env, night); else Art.drawBuilding(ctx, b, env, night);
     if (b.vines && !night) for (let i = 0; i < 6; i++) if (b.tile.w[i] === 'H' && b.tile.d[i] > 0) drawVines(b.tile, i, b.tile.d[i]);
   }
   ctx.globalAlpha = 1;
@@ -3250,7 +3936,7 @@ function start(data) {
   try { window.claude && window.claude.hot && window.claude.hot.snapshot && window.claude.hot.snapshot(() => ({ state: JSON.stringify(state), cam })); } catch (e) { /* not in a viewer */ }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderTray(); ui.dirty = true; });
   requestAnimationFrame(loop);
-  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter, updateHint, get townArt() { return townArt; }, get townBuildings() { return townList.length; }, frameMs() { const t0 = performance.now(); draw(t0); return performance.now() - t0; } };
+  window.__numo = { get state() { return state; }, get cam() { return cam; }, get ui() { return ui; }, prefs, toScreen, hexCenter, updateHint, get townArt() { return townArt; }, get townBuildings() { return artList.filter(b => !b.dc).length; }, get dcArt() { return dcArt; }, get dcPieces() { return artList.filter(b => b.dc).length; }, frameMs() { const t0 = performance.now(); draw(t0); return performance.now() - t0; } };
 }
 if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(start);
 else start((window.claude && window.claude.hot && window.claude.hot.data) || {});

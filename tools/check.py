@@ -1,9 +1,11 @@
 """Phone check: load docs/index.html headless at 390x844 with touch, place 10 tiles by tapping,
 tap a tile, then open the info sheet, undo, and reload. Then load a day world and a night world made in the page
-(seed 1000), photograph the biggest town's art in each, and tap the night town and a data centre. Pass = 10 placements land and change the
-score, the tile tap opens the inspector, undo and reload work, no sideways overflow, a non-blank
-canvas, the night world's town and data centre light up with their food and cooling, the explainer
-describes roads, settling wild land and doors, and zero console errors.
+(seed 1000), photograph the biggest town's art in each, and tap the night town and a data centre. Then photograph
+the data-centre art: a big data centre at night, cool and running hot, in worlds the harness's greedy bot makes in the
+page. Pass = 10 placements land and change the score, the tile tap opens the inspector, undo and reload work, no
+sideways overflow, a non-blank canvas, the night world's town and data centre light up with their food and cooling,
+the explainer describes roads, settling wild land and doors, the big data centre's heart draws as a matrioshka with
+no tile below campus, a big one runs hot, and zero console errors.
 
 Google Fonts requests are stubbed because sandboxes often cannot reach them; that only swaps
 the typefaces for fallbacks. Drop the two page.route lines to test with real fonts.
@@ -122,6 +124,71 @@ async def night_world(page):
                  and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
     return res
 
+GREEDY = '''([seed, turns, hotMin]) => { // the harness's greedy bot (tools/bots.js), so a seed replays its harness game
+  const S = window.Sim, st = S.newGame(seed);
+  const move = () => {
+    const slots = S.slotTiles(st), cells = S.frontier(st);
+    const nbs = cells.map(([q, r]) => S.DIRS.map((d, i) => { const nb = st.map[S.key(q + d[0], r + d[1])]; return nb ? nb.w[(i + 3) % 6] : null; }));
+    let best = -1, moves = [];
+    for (const s of slots) for (let c = 0; c < cells.length; c++) {
+      if (s.kind !== 'n' && st.map[S.key(cells[c][0], cells[c][1])]) continue; // wild ground takes ordinary tiles only
+      for (let k = 0; k < (s.kind === 'x' ? 1 : 6); k++) {
+        let m = 0, n = 0;
+        for (let i = 0; i < 6; i++) { if (!nbs[c][i]) continue; n++; if (S.matches(s.w[(i - k + 6) % 6], nbs[c][i])) m++; }
+        const sc = m * 10 + n;
+        if (sc > best) { best = sc; moves = [[s, c, k]]; } else if (sc === best) moves.push([s, c, k]);
+      }
+    }
+    const [s, c, k] = moves[S.rint(st.rng, moves.length)];
+    return { slot: { from: s.from, i: s.i }, q: cells[c][0], r: cells[c][1], k };
+  };
+  // with hotMin, stop once a data centre of that size runs hot with a wedge about to fall
+  const hot = () => { const v = S.view(st); for (const k in st.map) { const t = st.map[k], inf = v.info[t.id] || [];
+    for (let i = 0; i < 6; i++) { const c = inf[i]; if (t.w[i] === 'D' && c && c.size >= hotMin && c.cool < c.need && t.d[i] > 0) return true; } } return false; };
+  for (let t = 0; t < turns && !(hotMin && st.dcSince != null && hot()); t++) {
+    while (st.choices > 0) S.choose(st, S.rint(st.rng, 2) ? 'x' : 'r');
+    const mv = move(); S.place(st, mv.slot, mv.q, mv.r, mv.k);
+  }
+  localStorage.setItem('numogarden-v1', JSON.stringify({ state: st, cam: { x: 0, y: 0, s: 46 } }));
+  return { seed, turn: st.turn, level: st.level };
+}'''
+DC_SHOT = '''(hot) => { // the camera on the biggest data centre (running hot, for the hot shot), at its top art tile nearest its middle
+  const st = __numo.state, v = window.Sim.view(st), cam = __numo.cam, cells = new Map();
+  for (const k in st.map) { const t = st.map[k], inf = v.info[t.id] || []; for (let i = 0; i < 6; i++) if (t.w[i] === 'D' && inf[i]) (cells.get(inf[i]) || cells.set(inf[i], new Set()).get(inf[i])).add(t); }
+  let best = null; for (const [c, ts] of cells) if ((!hot || c.cool < c.need) && (!best || c.size > best[0].size)) best = [c, ts];
+  if (!best) return null;
+  const [c, ts] = best, tiles = [...ts], arts = tiles.map(t => __numo.dcArt.get(t.id)), sizes = {};
+  for (const a of arts) sizes[a.T] = (sizes[a.T] || 0) + 1;
+  let mx = 0, my = 0; for (const t of tiles) { const h = __numo.hexCenter(t.q, t.r); mx += h[0] / tiles.length; my += h[1] / tiles.length; }
+  const top = Math.max(...arts.map(a => a.T));
+  let aim = null, bd = 1e9; tiles.forEach((t, j) => { const h = __numo.hexCenter(t.q, t.r), d = Math.hypot(h[0] - mx, h[1] - my); if (arts[j].T === top && d < bd) { bd = d; aim = { h, a: arts[j] }; } });
+  cam.x = aim.h[0]; cam.y = aim.h[1] - 0.3; cam.s = 46; __numo.ui.dirty = true;
+  const names = ['rack', 'server hall', 'data hall', 'campus', 'hyperscale', 'exascale', 'matrioshka'];
+  return { name: (st.groups[c.tag] || {}).name || null, size: c.size, cool: c.cool, need: c.need, tiles: tiles.length, top: names[top],
+    min: names[Math.min(...arts.map(a => a.T))], split: Object.keys(sizes).sort((a, b) => b - a).map(T => sizes[T] + ' ' + names[T]).join(', '),
+    top_tile_hot: aim.a.hot, falling: tiles.reduce((n, t) => n + t.w.filter((w, i) => w === 'D' && t.d[i] > 0).length, 0), pieces: __numo.dcPieces };
+}'''
+async def dc_world(page):
+    """Data-centre art. Cool: the lab sheet's coast, the harness greedy bot's game on seed 183137 after 900 placements,
+    centred on its biggest data centre's heart, which should draw as a matrioshka with no tile below campus; the frame
+    time there is reported. Hot: seed 40595 played until a data centre of 49+ wedges runs hot with a wedge about to fall,
+    photographed while its lights are on (they blink on one shared beat)."""
+    made = await page.evaluate(GREEDY, [183137, 900, 0])
+    await page.reload(); await page.wait_for_timeout(900)
+    cool = await page.evaluate(DC_SHOT, False); await page.wait_for_timeout(300)
+    await page.screenshot(path=str(ROOT / 'results/phone-check-dc-night.png'))
+    cool['frame_ms'] = await page.evaluate('(() => { const t = []; for (let k = 0; k < 15; k++) t.push(__numo.frameMs()); t.sort((a, b) => a - b); return +t[7].toFixed(1); })()')
+    made_hot = await page.evaluate(GREEDY, [40595, 900, 49])
+    await page.reload(); await page.wait_for_timeout(900)
+    hot = await page.evaluate(DC_SHOT, True); await page.wait_for_timeout(300)
+    # wait for the start of the beat's lit half (sin(5t) > 0), so the shot shows the lights on
+    await page.evaluate('() => new Promise(done => { const go = () => { const ph = (performance.now() / 200) % (2 * Math.PI); if (ph > 0.2 && ph < 0.6) done(); else requestAnimationFrame(go); }; go(); })')
+    await page.screenshot(path=str(ROOT / 'results/phone-check-dc-hot.png'))
+    res = {'cool': dict(made, **(cool or {})), 'hot': dict(made_hot, **(hot or {}))}
+    res['ok'] = bool(cool and cool['size'] >= 73 and cool['top'] == 'matrioshka' and cool['min'] == 'campus' and not cool['top_tile_hot']
+                     and hot and hot['size'] >= 49 and hot['top_tile_hot'] and hot['falling'] > 0)
+    return res
+
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
@@ -185,12 +252,13 @@ async def main():
         reloaded = await page.evaluate('__numo.state.turn')
         day = await day_town(page)
         night = await night_world(page)
+        dc = await dc_world(page)
         ok = (placed == 10 and after['turn'] - before['turn'] == 10 and after['stars'] > before['stars']
               and undone == after['turn'] - 1 and reloaded == undone and overflow <= 0 and distinct > 50 and inspector
-              and day['ok'] and night['ok'] and not errors)
+              and day['ok'] and night['ok'] and dc['ok'] and not errors)
         print('PHONE CHECK:', 'PASS' if ok else 'FAIL')
         print(json.dumps({'before': before, 'after': after, 'placed': placed, 'inspector_opens': inspector, 'turn_after_undo': undone, 'turn_after_reload': reloaded,
-                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'day_town': day, 'night_world': night, 'errors': errors}, indent=1))
+                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'day_town': day, 'night_world': night, 'data_centres': dc, 'errors': errors}, indent=1))
         await b.close()
         return ok
 sys.exit(0 if asyncio.run(main()) else 1)
