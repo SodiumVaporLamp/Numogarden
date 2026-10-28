@@ -3,7 +3,7 @@ tap a tile, then open the info sheet, undo, and reload. Then load a night world 
 (seed 1000) and tap its biggest town and a data centre. Pass = 10 placements land and change the
 score, the tile tap opens the inspector, undo and reload work, no sideways overflow, a non-blank
 canvas, the night world's town and data centre light up with their food and cooling, the explainer
-describes roads, and zero console errors.
+describes roads, settling wild land and doors, and zero console errors.
 
 Google Fonts requests are stubbed because sandboxes often cannot reach them; that only swaps
 the typefaces for fallbacks. Drop the two page.route lines to test with real fonts.
@@ -82,8 +82,11 @@ async def night_world(page):
     await page.tap('#infoBtn'); await page.wait_for_timeout(250)
     res['explainer_has_night'] = await page.evaluate('[...document.querySelectorAll("#sheet summary")].some(s => s.textContent === "Night")')
     res['explainer_has_roads'] = await page.evaluate('document.getElementById("sheet").innerText.includes("build a road")')
+    res['explainer_has_settling'] = await page.evaluate('document.getElementById("sheet").textContent.includes("Wild land settles")')
+    res['explainer_has_doors'] = await page.evaluate('(t => t.includes("is a door") && t.includes("dreams while it is open"))(document.getElementById("sheet").textContent)')
     await page.tap('#closeS'); await page.wait_for_timeout(100)
     res['ok'] = (made['dcSince'] is not None and res['explainer_has_night'] and res['explainer_has_roads']
+                 and res['explainer_has_settling'] and res['explainer_has_doors']
                  and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
     return res
 
