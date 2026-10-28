@@ -1,16 +1,16 @@
 
 === greedy: 20 runs x 900 placements ===
 doors that opened (games, median placement first open): 1: 20 @47.5  2: 13 @362  3: 3 @279
-at the end (median): clumps 36.5, biggest clump 2, doors open 7, wild land 8.0%
-door dreams per run (median): laid 0, came true 0, faded 0; in games where the third door opened: laid 0, came true 0
-per run (median): door openings 35, wild wedges settled 64, perfect fits 23, Plex tiles given 38, turned into stars 18, stars 5647.5
+at the end (median): clumps 37, biggest clump 2, doors open 6.5, wild land 8.0%
+door dreams per run (median): laid 0, came true 0, faded 0; in games where the third door opened: laid 1, came true 0
+per run (median): door openings 35, wild wedges settled 64, perfect fits 24, Plex tiles given 38, turned into stars 18, stars 5647.5
 errors: 0
 
 === door: 20 runs x 900 placements ===
-doors that opened (games, median placement first open): 1: 20 @44  2: 18 @202  3: 10 @294  4: 4 @572.5  5: 1 @754
-at the end (median): clumps 22.5, biggest clump 3, doors open 10, wild land 8.0%
-door dreams per run (median): laid 0, came true 0, faded 0; in games where the third door opened: laid 0.5, came true 0
-per run (median): door openings 25.5, wild wedges settled 6, perfect fits 22.5, Plex tiles given 27, turned into stars 21.5, stars 5546.5
+doors that opened (games, median placement first open): 1: 20 @44  2: 18 @202  3: 10 @294  4: 4 @496.5  6: 1 @771
+at the end (median): clumps 24, biggest clump 3, doors open 10, wild land 8.0%
+door dreams per run (median): laid 3, came true 0.5, faded 0; in games where the third door opened: laid 7.5, came true 5.5
+per run (median): door openings 26.5, wild wedges settled 5.5, perfect fits 24, Plex tiles given 27.5, turned into stars 23.5, stars 5602.5
 errors: 0
 
-(203.5s)
+(192.4s)

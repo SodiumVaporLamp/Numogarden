@@ -276,6 +276,8 @@ const CFG = {
   DOOR_DREAM_MAX: 2,    //   tiles of its own zone from the day deck (DOOR_TRIES draws at most), laid at its mouth;
   DOOR_TRIES: 100,      //   a door's dream comes true with DOOR_NEED believers that aren't wild, for DOOR_STARS,
   DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
+  DOOR_NEAREST: true,   //   a door with no room at its mouth dreams on the nearest empty cells instead, searching outward
+                        //   through the land (false = only at its mouth, which replays the rules before it)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -1261,7 +1263,7 @@ function doors(state, ev) {
       if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, d.at, ev, 'door', d.n);
       else if (d.n >= 3) pushEvent(state, ev, 'door', `The ${ORDINAL[d.n]} door is open.`);
     }
-    // an open door of 3 or more dreams tiles of its own zone at its mouth, laid next step like metropolis tiles
+    // an open door of 3 or more dreams tiles of its own zone at its mouth (or the nearest open ground), laid next step like metropolis tiles
     if (!d.open || d.n < 3 || CFG.DOOR_BASE <= 0) continue;
     if (rec.lastDream == null) { rec.lastDream = state.turn; continue; }
     if (state.turn - rec.lastDream < CFG.DOOR_BASE - d.n) continue;
@@ -1277,6 +1279,17 @@ function doors(state, ev) {
       const nb = state.map[key(t.q + dq, t.r + dr)];
       if (!nb) add(t.q + dq, t.r + dr);
       else if (nb.kind === 'n' && nb.w.every(c => c === 'X')) for (const [eq, er] of DIRS) add(nb.q + eq, nb.r + er);
+    }
+    if (!cells.length && CFG.DOOR_NEAREST) { // no room at its mouth: the nearest empty cells, searching outward through the land
+      const seenT = new Set(d.ids); let front = d.tiles;
+      while (!cells.length && front.length) {
+        const nextF = [];
+        for (const t of front) for (const [dq, dr] of DIRS) {
+          const nb = state.map[key(t.q + dq, t.r + dr)];
+          if (!nb) add(t.q + dq, t.r + dr); else if (!seenT.has(nb.id)) { seenT.add(nb.id); nextF.push(nb); }
+        }
+        front = nextF;
+      }
     }
     if (!cells.length) continue;
     const [q, r] = cells[rint(st, cells.length)];
@@ -2520,7 +2533,7 @@ function openInfo() {
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
         ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>
-        <li>A door of three or more dreams while it is open. Every ${S.CFG.DOOR_BASE} placements, less one for each of its tiles, it lays a dream of its own zone in an empty spot beside it or beside one of its fully wild tiles, with up to ${S.CFG.DOOR_DREAM_MAX} out. A door's dream comes true once ${S.CFG.DOOR_NEED} neighbours agree with it, not counting wild land, for +${S.CFG.DOOR_STARS}★ and a visit from the door's demon. It doesn't fade while its door is open.</li>` : ''}
+        <li>A door of three or more dreams while it is open. Every ${S.CFG.DOOR_BASE} placements, less one for each of its tiles, it lays a dream of its own zone in an empty spot beside it or beside one of its fully wild tiles${S.CFG.DOOR_NEAREST ? ', or on the nearest open ground once the land has closed in around it' : ''}, with up to ${S.CFG.DOOR_DREAM_MAX} out. A door's dream comes true once ${S.CFG.DOOR_NEED} neighbours agree with it, not counting wild land, for +${S.CFG.DOOR_STARS}★ and a visit from the door's demon. It doesn't fade while its door is open.</li>` : ''}
       </ul>
     </details>` : ''}
     ${state.level >= 4 ? `<details>

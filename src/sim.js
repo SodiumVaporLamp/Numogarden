@@ -59,6 +59,8 @@ const CFG = {
   DOOR_DREAM_MAX: 2,    //   tiles of its own zone from the day deck (DOOR_TRIES draws at most), laid at its mouth;
   DOOR_TRIES: 100,      //   a door's dream comes true with DOOR_NEED believers that aren't wild, for DOOR_STARS,
   DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
+  DOOR_NEAREST: true,   //   a door with no room at its mouth dreams on the nearest empty cells instead, searching outward
+                        //   through the land (false = only at its mouth, which replays the rules before it)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -1044,7 +1046,7 @@ function doors(state, ev) {
       if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, d.at, ev, 'door', d.n);
       else if (d.n >= 3) pushEvent(state, ev, 'door', `The ${ORDINAL[d.n]} door is open.`);
     }
-    // an open door of 3 or more dreams tiles of its own zone at its mouth, laid next step like metropolis tiles
+    // an open door of 3 or more dreams tiles of its own zone at its mouth (or the nearest open ground), laid next step like metropolis tiles
     if (!d.open || d.n < 3 || CFG.DOOR_BASE <= 0) continue;
     if (rec.lastDream == null) { rec.lastDream = state.turn; continue; }
     if (state.turn - rec.lastDream < CFG.DOOR_BASE - d.n) continue;
@@ -1060,6 +1062,17 @@ function doors(state, ev) {
       const nb = state.map[key(t.q + dq, t.r + dr)];
       if (!nb) add(t.q + dq, t.r + dr);
       else if (nb.kind === 'n' && nb.w.every(c => c === 'X')) for (const [eq, er] of DIRS) add(nb.q + eq, nb.r + er);
+    }
+    if (!cells.length && CFG.DOOR_NEAREST) { // no room at its mouth: the nearest empty cells, searching outward through the land
+      const seenT = new Set(d.ids); let front = d.tiles;
+      while (!cells.length && front.length) {
+        const nextF = [];
+        for (const t of front) for (const [dq, dr] of DIRS) {
+          const nb = state.map[key(t.q + dq, t.r + dr)];
+          if (!nb) add(t.q + dq, t.r + dr); else if (!seenT.has(nb.id)) { seenT.add(nb.id); nextF.push(nb); }
+        }
+        front = nextF;
+      }
     }
     if (!cells.length) continue;
     const [q, r] = cells[rint(st, cells.length)];

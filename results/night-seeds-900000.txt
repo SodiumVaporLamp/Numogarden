@@ -14,4 +14,4 @@ towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
 NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.4% in 5..30%, towns kept 50>=45, dreams come true 62>=5, X>=10% in 0 runs, errors 0]
 
-(115.6s)
+(134.1s)

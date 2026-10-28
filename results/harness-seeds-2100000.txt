@@ -23,27 +23,27 @@ event kinds (last 80 per run, summed): {"lemur":838,"current":575,"rumor":531,"h
 errors: 0
 PASS CRITERIA (greedy): PASS  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 52.5 in 40..180, errors 0, current rise Hold +5.2<=10 pts, X>=10% at t300 in 0 runs]
 
-[zone] matches per placement  0:2.8% 1:15.7% 2:49.9% 3:27.3% 4:3.3% 5:0.7% 6:0.3%
-[zone] neighbours per placement 1:0.4% 2:23.7% 3:59.6% 4:12.6% 5:1.2% 6:2.5%
-[zone] clean fits (n>=3, all match) 24.2%
+[zone] matches per placement  0:2.8% 1:15.9% 2:49.5% 3:27.4% 4:3.4% 5:0.7% 6:0.3%
+[zone] neighbours per placement 1:0.4% 2:23.7% 3:59.5% 4:12.7% 5:1.2% 6:2.5%
+[zone] clean fits (n>=3, all match) 24.4%
 
 === zone bot: 50 runs x 300 placements ===
-end shares (mean): H 16.7%  F 6.0%  J 37.5%  S 20.2%  D 9.2%  M 2.4%  X 7.9%
+end shares (mean): H 16.7%  F 6.0%  J 37.6%  S 20.2%  D 9.2%  M 2.5%  X 7.9%
 max single-terrain share across runs: 45.0%
 runs with a terrain > 60%: 0/50
 runs with no self-build after t50: 0   no reclamation after t50: 0
 first self-build: median 80  (min 27, max 200), never: 0
-mean per run: sprawl 102.0  spawn 6.5  reclaim 324.0  decline 364.3  perfect 8.0  snug 71.2  syzygies 227.9  lemurs 58.0  rumorsReal 3.3  faded 2.6  wild 153.0  groks 0.6  roads 6.1  roadFed 119.3
-doors, mean per run: openings 11.0  door dreams laid 0.1, came true 0.0, faded 0.1;  first opened (runs @ median placement) 1:50@48 2:26@135 3:10@153.5 4:1@91
-wild land, mean per run: settled 68.5 wedges  Plex tiles given 11.0  turned into stars 3.1;  weirdness arrives (median placement) 1:19 2:36 3:62.5 4:105.5
-mean stars 1839  level dist {"4":50}  towns 12.4  largest town (mean) 79.2  tiles 325
+mean per run: sprawl 103.4  spawn 6.4  reclaim 328.9  decline 371.2  perfect 8.2  snug 71.9  syzygies 228.0  lemurs 57.1  rumorsReal 3.3  faded 2.7  wild 153.5  groks 0.5  roads 6.3  roadFed 117.3
+doors, mean per run: openings 11.0  door dreams laid 0.4, came true 0.2, faded 0.3;  first opened (runs @ median placement) 1:50@48 2:26@135 3:10@153.5 4:1@91
+wild land, mean per run: settled 68.9 wedges  Plex tiles given 11.1  turned into stars 3.3;  weirdness arrives (median placement) 1:19 2:36 3:62.5 4:105.5
+mean stars 1842  level dist {"4":50}  towns 12.5  largest town (mean) 78.8  tiles 325
   t100: H 23.4% F 18.3% J 32.0% S 20.0% D 0.0% M 1.7% X 4.8%
-  t200: H 20.3% F 9.8% J 34.6% S 19.7% D 5.9% M 2.7% X 7.1%
-  t300: H 16.7% F 6.0% J 37.5% S 20.2% D 9.2% M 2.4% X 7.9%
-current tile-steps per run: Plex 17979 (7.0%)  Surge 19900 (7.7%)  Hold 94497 (36.6%)  Warp 114254 (44.3%)  Sink 11508 (4.5%)
-  with effects off:         Plex 15.3%  Surge 7.8%  Hold 18.9%  Warp 45.9%  Sink 12.1%  biggest rise Hold +17.7 pts
+  t200: H 20.3% F 9.8% J 34.7% S 19.5% D 5.9% M 2.7% X 7.1%
+  t300: H 16.7% F 6.0% J 37.6% S 20.2% D 9.2% M 2.5% X 7.9%
+current tile-steps per run: Plex 17931 (7.0%)  Surge 20117 (7.8%)  Hold 94347 (36.6%)  Warp 113761 (44.1%)  Sink 11528 (4.5%)
+  with effects off:         Plex 15.4%  Surge 7.7%  Hold 18.9%  Warp 46.0%  Sink 12.0%  biggest rise Hold +17.7 pts
 X share at t300: mean 7.9%  max 8.3%  runs >= 10%: 0
-event kinds (last 80 per run, summed): {"current":1602,"town":64,"hungry":287,"lemur":640,"merge":39,"village":266,"jungle":115,"rumor":324,"homed":36,"lost":40,"door":43,"absorb":91,"sea":173,"city":15,"overgrown":8,"roadfeed":13,"reward":136,"road":30,"faded":24,"grok":7,"sprawl":14,"spare":9,"spawn":21,"metro":3}
+event kinds (last 80 per run, summed): {"hungry":291,"current":1602,"city":16,"sprawl":16,"reward":151,"lemur":623,"door":45,"rumor":320,"village":261,"sea":177,"homed":37,"lost":39,"absorb":92,"merge":42,"roadfeed":13,"road":32,"spare":11,"jungle":108,"town":64,"overgrown":7,"faded":24,"grok":6,"spawn":19,"metro":3,"dream":1}
 errors: 0
 same criteria (zone-aware, diagnostic): fail  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 80 in 40..180, errors 0, current rise Hold +17.7<=10 pts, X>=10% at t300 in 0 runs]
 
@@ -69,4 +69,4 @@ X share at t300: mean 0.3%  max 6.1%  runs >= 10%: 0
 event kinds (last 80 per run, summed): {"sea":220,"current":1574,"village":654,"lemur":195,"jungle":552,"town":69,"lost":31,"road":23,"roadfeed":6,"harvest":253,"level":74,"grok":12,"sprawl":25,"spare":20,"metro":14,"spawn":71,"merge":60,"city":12,"hungry":55,"homed":59,"reward":15,"door":5,"faded":1}
 errors: 0
 
-(147.2s)
+(155.5s)
