@@ -280,7 +280,8 @@ const CFG = {
                         //   through the land (false = only at its mouth, which replays the rules before it)
   LOOPS: true,          // closed loops of one current are found and drawn (specs/loops.md; no effect on the land yet)
   LOOP_SETTLE: 2,       //   a pair counts as closed once it has been on a loop this many placements in a row
-  LOOP_QUIET: 20,       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
+  LOOP_QUIET: 20,
+  LOOP_FX: ['Warp', 'Surge', 'Hold', 'Sink', 'Plex'], // the currents a closed loop doubles ([] = loops have no effect)       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
   HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
                         //   (false = only its own pair, which replays the rules before it; specs/loops.md)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
@@ -829,9 +830,9 @@ function roadFood(state, C) {
 function tierOf(T, size) { const TT = CFG.TIERS[T]; let k = -1; for (let i = 0; i < TT.length; i++) if (size >= TT[i]) k = i; return k; }
 /* a town wakes once it has been a town for MATURE steps (half that in a Surge) and is at critical mass,
    or still a town after once being a city, or very well fed; the page asks the same question */
-function matureIn(state, G, surge) {
+function matureIn(state, G, surge) { // surge: 1 in a Surge, 2 on a closed Surge loop, which halves the wait again
   if (!G || G.townSince == null) return null;
-  return Math.max(0, (surge ? CFG.MATURE * CFG.SURGE_MATURE : CFG.MATURE) - (state.turn - G.townSince));
+  return Math.max(0, (surge ? CFG.MATURE * CFG.SURGE_MATURE / (surge === 2 ? 2 : 1) : CFG.MATURE) - (state.turn - G.townSince));
 }
 function isAwake(state, g, G, surge) {
   const mature = matureIn(state, G, surge) === 0;
@@ -982,7 +983,7 @@ function rules(state, C, ev) {
   const fx = currentFx(state);
   const tid = x => C.tiles[(x / 6) | 0].id;
   const held = x => fx.hold.has(tid(x));
-  const tick = x => fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast
+  const tick = x => fx.warp2.has(tid(x)) ? 4 : fx.warp.has(tid(x)) ? 2 : 1; // Warp: decay runs twice as fast, four times on a closed loop
   const sunk = x => fx.sunk.has(tid(x));          // Sink: cities lose their protection
   const addP = (x, to, cause, tag) => {
     const t = C.tiles[(x / 6) | 0], i = x % 6, k = t.id + ':' + i;
@@ -1158,8 +1159,12 @@ function rules(state, C, ev) {
   // sprawl: fed towns past critical mass build into neighbouring wedges
   for (const g of H.list) {
     const G = state.groups[g.tag];
-    let surge = false, warp = false;
-    if (fx.surge.size || fx.warp.size) for (const x of g.w) { const id = tid(x); if (fx.surge.has(id)) surge = true; if (fx.warp.has(id)) warp = true; }
+    let surge = 0, warp = 0; // 2 on a closed loop of that current
+    if (fx.surge.size || fx.warp.size) for (const x of g.w) {
+      const id = tid(x);
+      if (fx.surge.has(id)) surge = Math.max(surge, fx.surge2.has(id) ? 2 : 1);
+      if (fx.warp.has(id)) warp = Math.max(warp, fx.warp2.has(id) ? 2 : 1);
+    }
     // a town that has ever reached critical mass stays awake while it is still a town
     const awake = isAwake(state, g, G, surge);
     if (!awake || !g.fed) continue;
@@ -1168,8 +1173,8 @@ function rules(state, C, ev) {
     let p = Math.min(CFG.SPRAWL_MAX, CFG.SPRAWL_BASE + (city ? CFG.CITY_SLOPE : CFG.SPRAWL_SLOPE) * over);
     if (g.trade) p += CFG.TRADE_BONUS;
     if (G && G.homed) p += CFG.HOME_BONUS;
-    if (surge) p += CFG.SURGE_BONUS;
-    const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? CFG.WARP_TRIES : 1); // Warp: builds twice per step
+    if (surge) p += CFG.SURGE_BONUS * surge;
+    const tries = (1 + Math.floor(over / (city ? CFG.CITY_TRY_EVERY : CFG.TRY_EVERY))) * (warp ? CFG.WARP_TRIES ** warp : 1); // Warp: builds twice per step, four times on a closed loop
     let spared = false;
     for (let k = 0; k < tries; k++) {
       if (rnd(st) >= p) continue;
@@ -1406,15 +1411,18 @@ function updateCurrents(state) {
   const out = [];
   for (const c of state.currents || []) {
     const k = c.a + ':' + c.b, p = live.get(k);
-    if (p) { Object.assign(c, p); c.gone = 0; live.delete(k); out.push(c); continue; }
+    if (p) { Object.assign(c, p); c.gone = 0; c.loopHold = false; live.delete(k); out.push(c); continue; }
     const A = state.map[c.ka], B = state.map[c.kb];
     if (!A || !B || A.id !== c.a || B.id !== c.b) continue;
-    if (++c.gone <= CFG.CURRENT_LINGER) out.push(c);
+    if (!c.gone && c.name === 'Hold' && loopFx(c)) c.loopHold = true; // a closed Hold pair lingers twice as long
+    if (++c.gone <= CFG.CURRENT_LINGER * (c.loopHold ? 2 : 1)) out.push(c);
   }
   for (const p of live.values()) out.push(Object.assign(p, { since: state.turn, gone: 0 }));
   state.currents = out;
 }
 function activeCurrents(state) { return state.currents || []; }
+/* a closed pair whose current a loop doubles */
+function loopFx(c) { return CFG.LOOPS && !c.gone && c.loopFor >= CFG.LOOP_SETTLE && CFG.LOOP_FX.includes(c.name); }
 /* closed loops (specs/loops.md). Each current's live pairs make a graph on tiles; a pair is on a loop when its link is
    not a bridge (Tarjan). c.loopFor counts the placements in a row it has been on one, and a pair is closed from
    LOOP_SETTLE. Lingering pairs make no loops. A loop is a connected set of one current's closed pairs. */
@@ -1481,7 +1489,7 @@ function updateLoops(state, ev) {
 /* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
    Surge speeds towns up; Sink and Plex act once per current */
 function currentFx(state) {
-  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [] };
+  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [], warp2: new Set(), surge2: new Set() };
   if (!CFG.CURRENT_FX) return fx;
   // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end. With HOLD_EYE_LOOPS it
   // holds no tile at either end of any Hold current, so a loop of Hold currents can't hold itself either (specs/loops.md)
@@ -1490,9 +1498,12 @@ function currentFx(state) {
   for (const c of activeCurrents(state)) {
     const area = currentArea(state, c);
     if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b && !eye.has(t.id)) fx.hold.add(t.id); }
-    else if (c.name === 'Warp' || c.name === 'Surge') for (const t of area) fx[c.name.toLowerCase()].add(t.id);
-    else if (c.name === 'Sink') { fx.sink.push(area); for (const t of area) fx.sunk.add(t.id); }
-    else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) fx.plex.push(area);
+    // a closed loop doubles its current (specs/loops.md): Warp and Surge areas count twice, once however many loops
+    // cover a tile, and each closed Sink or Plex pair acts twice. Hold lingers twice as long (updateCurrents)
+    const twice = loopFx(c);
+    if (c.name === 'Warp' || c.name === 'Surge') { const n = c.name.toLowerCase(); for (const t of area) { fx[n].add(t.id); if (twice) fx[n + '2'].add(t.id); } }
+    else if (c.name === 'Sink') { fx.sink.push(area); if (twice) fx.sink.push(area); for (const t of area) fx.sunk.add(t.id); }
+    else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) { fx.plex.push(area); if (twice) fx.plex.push(area); }
   }
   return fx;
 }
@@ -1516,8 +1527,8 @@ function view(state) {
         const sea = new Set(); for (const x of g.w) for (const y of adjW(C, x)) if (wt(C, y) === 'S') sea.add(y);
         cell.cool = sea.size; cell.need = Math.ceil(g.size / CFG.COOL_K);
       } else if (T === 'H') { // food as the hunger rule counts it (feed()), and whether the town is awake and building
-        let surge = false;
-        if (fx.surge.size) for (const x of g.w) if (fx.surge.has(C.tiles[(x / 6) | 0].id)) { surge = true; break; }
+        let surge = 0;
+        if (fx.surge.size) for (const x of g.w) { const id = C.tiles[(x / 6) | 0].id; if (fx.surge.has(id)) surge = Math.max(surge, fx.surge2.has(id) ? 2 : 1); }
         cell.food = g.food; cell.sea = g.sea.size; cell.shared = g.sharesField;
         cell.roadIn = g.roadIn; cell.roadOut = g.roadOut; // food a road brings it or takes to a hungry town, and from whom
         cell.roadFrom = flows.filter(f => f.to === g).map(f => nameOf(f.from)); cell.roadTo = flows.filter(f => f.from === g).map(f => nameOf(f.to));
@@ -3203,7 +3214,7 @@ function openInspector(tl, wi) {
     }
     for (const [name, g] of byName) {
       const c = g.x.c;
-      lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>${g.loop ? `<p class="note">On a closed ${name} loop.</p>` : ''}`
+      lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>${g.loop ? `<p class="note">On a closed ${name} loop${S.CFG.LOOP_FX.includes(name) ? ', which ' + LOOP_TXT[name] : ''}.</p>` : ''}`
         + `<p class="note">${CURRENT_TXT[name]}${name === 'Hold' && g.end ? ' This tile is at the end of a Hold current, so it is not held itself.' : ''}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}${currentNow(name, g.area)}</p>`;
     }
   }
@@ -3286,7 +3297,7 @@ function openInfo() {
         <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
-        ${S.CFG.LOOPS ? `<li>Currents of one kind can join up into a closed loop, like a ring of four tiles where two touching tiles share two neighbours. A loop that stands for ${S.CFG.LOOP_SETTLE} placements is drawn as a solid circuit.</li>` : ''}
+        ${S.CFG.LOOPS ? `<li>Currents of one kind can join up into a closed loop, like a ring of four tiles where two touching tiles share two neighbours. A loop that stands for ${S.CFG.LOOP_SETTLE} placements is closed: it is drawn as a solid circuit and doubles its current over the land it acts on. A closed Warp loop runs time four times as fast, a Surge loop doubles its building boost and halves the wait to wake again, a Hold loop keeps holding for twice as long after it breaks, and Sink and Plex loops act twice.</li>` : ''}
         ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>
         <li>A door of three or more dreams while it is open. Every ${S.CFG.DOOR_BASE} placements, less one for each of its tiles, it lays a dream of its own zone in an empty spot beside it or beside one of its fully wild tiles${S.CFG.DOOR_NEAREST ? ', or on the nearest open ground once the land has closed in around it' : ''}, with up to ${S.CFG.DOOR_DREAM_MAX} out. A door's dream comes true once ${S.CFG.DOOR_NEED} neighbours agree with it, not counting wild land, for +${S.CFG.DOOR_STARS}★ and a visit from the door's demon. It doesn't fade while its door is open.</li>` : ''}
       </ul>
@@ -3307,7 +3318,7 @@ function openInfo() {
         <li>Glowing wedges change on your next placement. A dashed tile is about to be laid${state.level >= 4 ? ': crimson by a metropolis, violet for a dream' : ' by a metropolis'}.</li>
         <li>Vines grow on hamlets and fields that are fading.</li>
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null || state.stats.doorDreams ? ` Dreams are ghosts with drifting lines${state.stats.doorDreams ? ': violet from a data centre, crimson from a door' : ''}.` : ''}</li>
-        ${state.level >= 1 ? `<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on. A solid line is a closed loop.${state.level >= 4 ? ' At night only the zones of tiles with a current stay bright.' : ''}</li>` : ''}
+        ${state.level >= 1 ? `<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on. A solid line is a closed loop, which doubles its current.${state.level >= 4 ? ' At night only the zones of tiles with a current stay bright.' : ''}</li>` : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
         ${(view.doors || []).some(d => d.open) || state.stats.doors ? '<li>An open door glows crimson.</li>' : ''}
         ${(view.roads || []).length || state.stats.roads ? `<li>A road starts as a dashed path and wears into a sandy road. Dots moving along it carry food to a hungry town. A green dashed road is overgrown.${state.level >= 4 ? ' At night old roads are lit.' : ''}</li>` : ''}
@@ -3538,6 +3549,9 @@ function drawCurrentTint() {
 }
 /* faint by day, bright at night; a current fades out while it lingers after its syzygy breaks */
 // a pair on a closed loop of its current (specs/loops.md), drawn as one solid circuit
+const LOOP_TXT = { // what a closed loop does to its current (specs/loops.md)
+  Warp: 'runs time four times as fast instead of twice', Surge: 'doubles its building boost and halves the wait to wake again',
+  Hold: 'keeps holding for twice as long after it breaks', Sink: 'wears the land down twice a placement', Plex: 'turns land wild twice as fast' };
 function closedPair(c) { return S.CFG.LOOPS && !c.gone && c.loopFor >= S.CFG.LOOP_SETTLE; }
 function drawCurrents(t) {
   if (!currents.length) return;
@@ -3549,7 +3563,7 @@ function drawCurrents(t) {
     const ca = hexCenter(a.q, a.r), cb = hexCenter(b.q, b.r), pa = toScreen(ca[0], ca[1]), pb = toScreen(cb[0], cb[1]);
     if (Math.max(pa[0], pb[0]) < -pad || Math.min(pa[0], pb[0]) > W + pad || Math.max(pa[1], pb[1]) < -pad || Math.min(pa[1], pb[1]) > H + pad) continue;
     const [from, to] = c.top === b.id ? [pb, pa] : [pa, pb]; // currents run from the higher zone to the lower
-    ctx.strokeStyle = col; ctx.globalAlpha = (night ? 0.85 : 0.45) * (1 - c.gone / (S.CFG.CURRENT_LINGER + 1));
+    ctx.strokeStyle = col; ctx.globalAlpha = (night ? 0.85 : 0.45) * (1 - c.gone / (S.CFG.CURRENT_LINGER * (c.loopHold ? 2 : 1) + 1)); // a closed Hold pair lingers twice as long
     if (closedPair(c)) { ctx.globalAlpha = night ? 1 : 0.75; ctx.save(); ctx.setLineDash([]); ctx.lineWidth *= 1.6; ctx.lineCap = 'round'; }
     ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]); ctx.stroke();
     if (closedPair(c)) ctx.restore();

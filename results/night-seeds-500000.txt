@@ -1,17 +1,17 @@
 === night check: greedy, 50 runs x 600 placements ===
-night reached in 50/50 runs, median placement 118
-end shares (mean): H 9.8%  F 2.8%  J 44.7%  S 20.7%  D 12.1%  M 2.0%  X 7.9%
-max single-terrain share across runs: 51.0%
-data centres at the end (median): clusters 52  largest 74 wedges (max 164)
-cooled on 90.9% of data-centre cluster-steps
+night reached in 50/50 runs, median placement 120
+end shares (mean): H 10.4%  F 2.9%  J 44.1%  S 20.6%  D 11.9%  M 2.2%  X 7.9%
+max single-terrain share across runs: 50.3%
+data centres at the end (median): clusters 51  largest 66 wedges (max 154)
+cooled on 89.7% of data-centre cluster-steps
 hamlet wedges absorbed per run (median): 107
-dreams per run (median): laid 154.5, came true 64
-dream ghosts on the map once data centres arrive: mean 3.8, max 15
-roads per run (median): built 5, town-steps a road kept fed 171.5; standing at once: mean 1.6, max 8
-doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@40 2:32@267
-wild land per run (median): settled 39 wedges, Plex tiles given 23, turned into stars 8, perfect fits 12
+dreams per run (median): laid 157, came true 61
+dream ghosts on the map once data centres arrive: mean 4.0, max 20
+roads per run (median): built 5, town-steps a road kept fed 228; standing at once: mean 1.8, max 13
+doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@40 2:26@210 3:1@414
+wild land per run (median): settled 32 wedges, Plex tiles given 23, turned into stars 7.5, perfect fits 12.5
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 12.2% in 5..30%, towns kept 50>=45, dreams come true 64>=5, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 12.1% in 5..30%, towns kept 50>=45, dreams come true 61>=5, X>=10% in 0 runs, errors 0]
 
-(150.0s)
+(168.3s)
