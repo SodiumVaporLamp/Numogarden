@@ -845,7 +845,7 @@ function openInspector(tl, wi) {
     for (const [name, g] of byName) {
       const c = g.x.c;
       lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>`
-        + `<p class="note">${CURRENT_TXT[name]}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}${currentNow(name, g.area)}</p>`;
+        + `<p class="note">${CURRENT_TXT[name]}${name === 'Hold' && g.end ? ' This tile is at the end of a Hold current, so it is not held itself.' : ''}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}${currentNow(name, g.area)}</p>`;
     }
   }
   if (tl.d.some((d, i) => d > 0 && tl.w[i] === 'F')) lines += `<p class="note">Vines are growing on the fields here. They are going untended.</p>`;
@@ -923,7 +923,7 @@ function openInfo() {
         <li>Two neighbouring tiles whose zones sum to nine open a current, named for the difference of their zones. It acts on both tiles and every tile touching them, and it keeps flowing for ${S.CFG.CURRENT_LINGER} placements after the zones stop adding up.</li>
         <li><b>Plex</b> 9::0, carried by Uttunul. ${CURRENT_TXT.Plex}</li>
         <li><b>Surge</b> 8::1, carried by Murrumur. Towns that touch it build faster and wake up in half the time.</li>
-        <li><b>Hold</b> 7::2, carried by Oddubb. ${CURRENT_TXT.Hold} The pair itself can still change.</li>
+        <li><b>Hold</b> 7::2, carried by Oddubb. ${CURRENT_TXT.Hold} The pair itself can still change, and so can a tile at either end of any Hold current, so Hold currents can't hold each other in place.</li>
         <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>

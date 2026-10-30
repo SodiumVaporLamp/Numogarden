@@ -1,72 +1,72 @@
 
-[greedy] matches per placement  0:0.0% 1:0.9% 2:56.9% 3:40.5% 4:1.5% 5:0.2% 6:0.1%
-[greedy] neighbours per placement 1:0.3% 2:14.5% 3:76.7% 4:7.5% 5:0.3% 6:0.6%
+[greedy] matches per placement  1:0.9% 2:57.2% 3:40.3% 4:1.4% 5:0.2% 6:0.1%
+[greedy] neighbours per placement 1:0.3% 2:14.4% 3:77.3% 4:7.1% 5:0.4% 6:0.5%
 [greedy] clean fits (n>=3, all match) 38.5%
 
 === greedy bot: 50 runs x 300 placements ===
-end shares (mean): H 16.6%  F 7.2%  J 38.2%  S 19.8%  D 8.5%  M 2.8%  X 7.0%
-max single-terrain share across runs: 51.4%
+end shares (mean): H 16.4%  F 7.2%  J 37.6%  S 19.7%  D 8.7%  M 3.4%  X 6.9%
+max single-terrain share across runs: 51.5%
 runs with a terrain > 60%: 0/50
 runs with no self-build after t50: 0   no reclamation after t50: 0
-first self-build: median 54  (min 28, max 141), never: 0
-mean per run: sprawl 115.8  spawn 9.3  reclaim 352.5  decline 392.5  perfect 4.0  snug 112.1  syzygies 67.8  lemurs 51.6  rumorsReal 6.6  faded 1.3  wild 81.5  groks 0.5  roads 4.9  roadFed 100.3
-doors, mean per run: openings 10.0  door dreams laid 0.0, came true 0.0, faded 0.0;  first opened (runs @ median placement) 1:50@47.5 2:14@189 4:1@294
-wild land, mean per run: settled 17.4 wedges  Plex tiles given 12.1  turned into stars 1.0;  weirdness arrives (median placement) 1:14 2:33 3:67.5 4:122
-mean stars 1558  level dist {"4":50}  towns 9.5  largest town (mean) 123.9  tiles 330
-  t100: H 27.6% F 20.8% J 26.8% S 19.3% D 0.0% M 1.7% X 3.7%
-  t200: H 22.3% F 11.9% J 31.9% S 19.6% D 5.6% M 3.3% X 5.5%
-  t300: H 16.6% F 7.2% J 38.2% S 19.8% D 8.5% M 2.8% X 7.0%
-current tile-steps per run: Plex 5860 (4.8%)  Surge 10845 (8.9%)  Hold 26176 (21.5%)  Warp 72317 (59.5%)  Sink 6419 (5.3%)
-  with effects off:         Plex 8.4%  Surge 8.3%  Hold 17.7%  Warp 56.4%  Sink 9.2%  biggest rise Hold +3.8 pts
-X share at t300: mean 7.0%  max 8.3%  runs >= 10%: 0
-event kinds (last 80 per run, summed): {"hungry":411,"rumor":508,"lemur":848,"sea":215,"jungle":214,"absorb":206,"village":357,"door":57,"current":572,"reward":125,"town":88,"overgrown":23,"faded":24,"lost":51,"homed":44,"city":15,"road":38,"metro":12,"spawn":50,"roadfeed":30,"merge":65,"sprawl":19,"spare":22,"grok":4,"harvest":1,"dream":1}
+first self-build: median 53  (min 28, max 145), never: 0
+mean per run: sprawl 129.9  spawn 9.8  reclaim 356.2  decline 403.5  perfect 3.7  snug 111.4  syzygies 66.8  lemurs 51.2  rumorsReal 6.9  faded 1.4  wild 86.0  groks 0.3  roads 4.5  roadFed 74.6
+doors, mean per run: openings 9.1  door dreams laid 0.0, came true 0.0, faded 0.0;  first opened (runs @ median placement) 1:50@41 2:9@190
+wild land, mean per run: settled 15.8 wedges  Plex tiles given 10.9  turned into stars 1.3;  weirdness arrives (median placement) 1:14 2:33.5 3:68 4:121
+mean stars 1555  level dist {"4":50}  towns 8.1  largest town (mean) 131.1  tiles 331
+  t100: H 29.2% F 20.1% J 26.2% S 19.2% D 0.0% M 1.4% X 4.0%
+  t200: H 23.1% F 12.1% J 30.8% S 19.4% D 5.3% M 3.4% X 5.9%
+  t300: H 16.4% F 7.2% J 37.6% S 19.7% D 8.7% M 3.4% X 6.9%
+current tile-steps per run: Plex 6346 (5.7%)  Surge 12600 (11.4%)  Hold 15716 (14.2%)  Warp 69549 (63.0%)  Sink 6247 (5.7%)
+  with effects off:         Plex 8.4%  Surge 8.3%  Hold 17.7%  Warp 56.4%  Sink 9.2%  biggest rise Warp +6.6 pts
+X share at t300: mean 6.9%  max 8.2%  runs >= 10%: 0
+event kinds (last 80 per run, summed): {"lemur":834,"current":629,"town":117,"jungle":188,"hungry":390,"absorb":221,"village":334,"homed":45,"rumor":515,"merge":61,"sea":222,"door":56,"reward":108,"road":40,"sprawl":26,"roadfeed":22,"spawn":46,"spare":19,"lost":47,"city":21,"faded":22,"metro":10,"grok":6,"dc":1,"dream":1,"overgrown":19}
 errors: 0
-PASS CRITERIA (greedy): PASS  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 54 in 40..180, errors 0, current rise Hold +3.8<=10 pts, X>=10% at t300 in 0 runs]
+PASS CRITERIA (greedy): PASS  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 53 in 40..180, errors 0, current rise Warp +6.6<=10 pts, X>=10% at t300 in 0 runs]
 
-[zone] matches per placement  0:2.4% 1:14.9% 2:50.0% 3:27.4% 4:3.9% 5:1.0% 6:0.3%
-[zone] neighbours per placement 1:0.4% 2:23.6% 3:58.2% 4:13.6% 5:1.2% 6:3.0%
-[zone] clean fits (n>=3, all match) 24.8%
+[zone] matches per placement  0:2.9% 1:15.4% 2:50.3% 3:28.3% 4:2.7% 5:0.3% 6:0.1%
+[zone] neighbours per placement 1:0.4% 2:24.0% 3:60.4% 4:13.5% 5:1.1% 6:0.8%
+[zone] clean fits (n>=3, all match) 25.1%
 
 === zone bot: 50 runs x 300 placements ===
-end shares (mean): H 16.5%  F 5.8%  J 37.4%  S 20.2%  D 9.5%  M 2.7%  X 7.9%
-max single-terrain share across runs: 47.7%
+end shares (mean): H 13.9%  F 5.0%  J 41.6%  S 20.1%  D 8.8%  M 2.7%  X 7.9%
+max single-terrain share across runs: 50.4%
 runs with a terrain > 60%: 0/50
 runs with no self-build after t50: 0   no reclamation after t50: 0
-first self-build: median 57.5  (min 24, max 164), never: 0
-mean per run: sprawl 86.5  spawn 8.0  reclaim 310.8  decline 359.5  perfect 9.4  snug 72.9  syzygies 229.3  lemurs 60.7  rumorsReal 3.7  faded 2.7  wild 158.8  groks 0.6  roads 8.1  roadFed 118.4
-doors, mean per run: openings 11.7  door dreams laid 0.2, came true 0.0, faded 0.2;  first opened (runs @ median placement) 1:50@47.5 2:38@170.5 3:7@169
-wild land, mean per run: settled 79.0 wedges  Plex tiles given 11.8  turned into stars 3.5;  weirdness arrives (median placement) 1:18 2:35 3:62.5 4:105
-mean stars 1881  level dist {"4":50}  towns 13.5  largest town (mean) 76.9  tiles 325
-  t100: H 23.1% F 18.8% J 30.5% S 20.5% D 0.1% M 2.2% X 4.8%
-  t200: H 19.9% F 9.4% J 34.2% S 20.0% D 6.8% M 2.8% X 6.9%
-  t300: H 16.5% F 5.8% J 37.4% S 20.2% D 9.5% M 2.7% X 7.9%
-current tile-steps per run: Plex 18844 (7.0%)  Surge 19830 (7.4%)  Hold 95515 (35.6%)  Warp 123591 (46.1%)  Sink 10449 (3.9%)
-  with effects off:         Plex 13.9%  Surge 7.0%  Hold 18.0%  Warp 49.1%  Sink 12.0%  biggest rise Hold +17.6 pts
-X share at t300: mean 7.9%  max 8.6%  runs >= 10%: 0
-event kinds (last 80 per run, summed): {"lemur":674,"rumor":321,"current":1552,"village":249,"homed":32,"jungle":120,"absorb":129,"hungry":253,"sea":144,"lost":32,"faded":25,"town":52,"reward":172,"door":54,"city":8,"roadfeed":27,"road":38,"sprawl":16,"spare":13,"metro":9,"merge":39,"spawn":23,"overgrown":11,"grok":6,"dream":1}
+first self-build: median 60  (min 26, max 293), never: 0
+mean per run: sprawl 115.7  spawn 7.2  reclaim 413.0  decline 437.3  perfect 7.3  snug 73.8  syzygies 226.5  lemurs 56.8  rumorsReal 3.5  faded 2.6  wild 121.6  groks 0.4  roads 6.0  roadFed 95.4
+doors, mean per run: openings 10.2  door dreams laid 0.2, came true 0.0, faded 0.2;  first opened (runs @ median placement) 1:50@43 2:20@160 3:4@220.5
+wild land, mean per run: settled 29.4 wedges  Plex tiles given 10.3  turned into stars 3.3;  weirdness arrives (median placement) 1:18 2:35 3:63.5 4:104.5
+mean stars 1832  level dist {"4":50}  towns 9.6  largest town (mean) 75.8  tiles 331
+  t100: H 23.6% F 17.3% J 31.7% S 19.9% D 0.1% M 2.1% X 5.3%
+  t200: H 18.6% F 8.5% J 37.1% S 19.4% D 5.8% M 3.3% X 7.3%
+  t300: H 13.9% F 5.0% J 41.6% S 20.1% D 8.8% M 2.7% X 7.9%
+current tile-steps per run: Plex 15913 (7.6%)  Surge 18799 (9.0%)  Hold 36416 (17.4%)  Warp 130631 (62.5%)  Sink 7392 (3.5%)
+  with effects off:         Plex 13.9%  Surge 7.0%  Hold 18.0%  Warp 49.1%  Sink 12.0%  biggest rise Warp +13.3 pts
+X share at t300: mean 7.9%  max 8.3%  runs >= 10%: 0
+event kinds (last 80 per run, summed): {"overgrown":11,"current":1591,"jungle":114,"village":284,"hungry":161,"rumor":337,"lemur":686,"homed":34,"reward":160,"door":49,"sea":174,"absorb":132,"grok":4,"sprawl":18,"spare":9,"faded":20,"merge":41,"metro":6,"roadfeed":10,"road":35,"spawn":19,"town":47,"city":7,"lost":45,"dc":2,"dream":2,"harvest":2}
 errors: 0
-same criteria (zone-aware, diagnostic): fail  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 57.5 in 40..180, errors 0, current rise Hold +17.6<=10 pts, X>=10% at t300 in 0 runs]
+same criteria (zone-aware, diagnostic): fail  [dominance 0<=5, self-build all true, reclaim all true, median first self-build 60 in 40..180, errors 0, current rise Warp +13.3<=10 pts, X>=10% at t300 in 0 runs]
 
-[random] matches per placement  0:54.2% 1:33.9% 2:9.1% 3:2.3% 4:0.5% 5:0.0% 6:0.0%
-[random] neighbours per placement 1:40.1% 2:24.4% 3:14.9% 4:9.3% 5:7.3% 6:4.0%
-[random] clean fits (n>=3, all match) 0.4%
+[random] matches per placement  0:54.6% 1:33.4% 2:9.1% 3:2.4% 4:0.4% 5:0.1% 6:0.0%
+[random] neighbours per placement 1:39.5% 2:24.8% 3:15.0% 4:9.2% 5:7.4% 6:4.1%
+[random] clean fits (n>=3, all match) 0.5%
 
 === random bot: 50 runs x 300 placements ===
-end shares (mean): H 21.8%  F 20.8%  J 34.3%  S 21.4%  D 0.0%  M 1.4%  X 0.3%
-max single-terrain share across runs: 42.6%
+end shares (mean): H 22.1%  F 20.5%  J 34.4%  S 21.4%  D 0.0%  M 1.4%  X 0.4%
+max single-terrain share across runs: 40.3%
 runs with a terrain > 60%: 0/50
-runs with no self-build after t50: 25   no reclamation after t50: 0
-first self-build: median Infinity  (min 44, max Infinity), never: 25
-mean per run: sprawl 24.7  spawn 2.1  reclaim 160.7  decline 159.3  perfect 0.4  snug 1.3  syzygies 45.7  lemurs 8.6  rumorsReal 0.0  faded 0.0  wild 4.6  groks 0.3  roads 0.9  roadFed 4.5
-doors, mean per run: openings 0.3  door dreams laid 0.0, came true 0.0, faded 0.0;  first opened (runs @ median placement) 1:12@193.5
-wild land, mean per run: settled 1.0 wedges  Plex tiles given 0.4  turned into stars 0.0;  weirdness arrives (median placement) 1:68.5 2:134.5 3:241 4:Infinity
-mean stars 372  level dist {"3":50}  towns 12.8  largest town (mean) 51.9  tiles 303
-  t100: H 21.9% F 21.6% J 33.1% S 21.7% D 0.0% M 1.6% X 0.1%
-  t200: H 21.8% F 21.0% J 34.0% S 21.4% D 0.0% M 1.6% X 0.2%
-  t300: H 21.8% F 20.8% J 34.3% S 21.4% D 0.0% M 1.4% X 0.3%
-current tile-steps per run: Plex 218 (0.3%)  Surge 5606 (8.1%)  Hold 15730 (22.8%)  Warp 44234 (64.1%)  Sink 3248 (4.7%)
-X share at t300: mean 0.3%  max 5.6%  runs >= 10%: 0
-event kinds (last 80 per run, summed): {"current":1572,"village":673,"hungry":80,"jungle":511,"lemur":193,"level":73,"sea":222,"harvest":267,"town":82,"road":37,"lost":27,"reward":13,"spawn":74,"homed":59,"merge":44,"city":3,"sprawl":21,"spare":15,"grok":11,"door":8,"faded":2,"roadfeed":6,"metro":6,"overgrown":1}
+runs with no self-build after t50: 22   no reclamation after t50: 0
+first self-build: median 274  (min 44, max Infinity), never: 22
+mean per run: sprawl 46.0  spawn 2.7  reclaim 170.1  decline 170.2  perfect 0.5  snug 1.5  syzygies 46.0  lemurs 9.1  rumorsReal 0.0  faded 0.1  wild 4.3  groks 0.4  roads 0.8  roadFed 7.8
+doors, mean per run: openings 0.3  door dreams laid 0.0, came true 0.0, faded 0.0;  first opened (runs @ median placement) 1:13@173
+wild land, mean per run: settled 0.7 wedges  Plex tiles given 0.5  turned into stars 0.0;  weirdness arrives (median placement) 1:68.5 2:135 3:238 4:Infinity
+mean stars 374  level dist {"3":50}  towns 12.8  largest town (mean) 71.3  tiles 304
+  t100: H 22.0% F 21.5% J 33.3% S 21.5% D 0.0% M 1.6% X 0.1%
+  t200: H 21.6% F 20.8% J 34.3% S 21.5% D 0.0% M 1.5% X 0.2%
+  t300: H 22.1% F 20.5% J 34.4% S 21.4% D 0.0% M 1.4% X 0.4%
+current tile-steps per run: Plex 201 (0.3%)  Surge 5042 (7.5%)  Hold 14151 (21.1%)  Warp 43992 (65.7%)  Sink 3613 (5.4%)
+X share at t300: mean 0.4%  max 7.7%  runs >= 10%: 0
+event kinds (last 80 per run, summed): {"jungle":537,"lemur":203,"harvest":254,"current":1511,"village":658,"hungry":92,"sea":199,"town":67,"level":72,"homed":81,"lost":32,"reward":15,"sprawl":23,"spare":18,"merge":66,"road":27,"metro":9,"spawn":95,"roadfeed":14,"grok":14,"faded":3,"city":4,"door":6}
 errors: 0
 
-(205.3s)
+(168.4s)

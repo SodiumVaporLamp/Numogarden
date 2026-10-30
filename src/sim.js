@@ -61,6 +61,8 @@ const CFG = {
   DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
   DOOR_NEAREST: true,   //   a door with no room at its mouth dreams on the nearest empty cells instead, searching outward
                         //   through the land (false = only at its mouth, which replays the rules before it)
+  HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
+                        //   (false = only its own pair, which replays the rules before it; specs/loops.md)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -1197,10 +1199,13 @@ function activeCurrents(state) { return state.currents || []; }
 function currentFx(state) {
   const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [] };
   if (!CFG.CURRENT_FX) return fx;
+  // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end. With HOLD_EYE_LOOPS it
+  // holds no tile at either end of any Hold current, so a loop of Hold currents can't hold itself either (specs/loops.md)
+  const eye = new Set();
+  if (CFG.HOLD_EYE_LOOPS) for (const c of activeCurrents(state)) if (c.name === 'Hold') eye.add(c.a).add(c.b);
   for (const c of activeCurrents(state)) {
     const area = currentArea(state, c);
-    // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end
-    if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b) fx.hold.add(t.id); }
+    if (c.name === 'Hold') { for (const t of area) if (t.id !== c.a && t.id !== c.b && !eye.has(t.id)) fx.hold.add(t.id); }
     else if (c.name === 'Warp' || c.name === 'Surge') for (const t of area) fx[c.name.toLowerCase()].add(t.id);
     else if (c.name === 'Sink') { fx.sink.push(area); for (const t of area) fx.sunk.add(t.id); }
     else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) fx.plex.push(area);

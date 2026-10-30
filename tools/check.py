@@ -24,11 +24,12 @@ TOWN_SHOT = '''() => { // centre the camera on the biggest named town; report th
   return { name: big.name, size: big.size, buildings: __numo.townBuildings, top_art_tier: Math.max(0, ...tiers) };
 }'''
 async def day_town(page):
-    """A day world made in the page with the real rules (seed 1000, 112 greedy placements, before nightfall), centred on
-    its biggest town for a screenshot of the town art. Its heart should draw as a megacity (art tier 5)."""
+    """A day world made in the page with the real rules (seed 1000, greedy play until its biggest town reaches 100 wedges,
+    placement 127 today, which must come before nightfall), centred on its biggest town for a screenshot of the town art.
+    Its heart should draw as a megacity (art tier 5)."""
     made = await page.evaluate('''() => {
       const S = window.Sim, st = S.newGame(1000);
-      for (let t = 0; t < 112; t++) {
+      for (let t = 0; t < 300 && st.level < 4 && Math.max(0, ...S.view(st).labels.map(l => l.size)) < 100; t++) {
         while (st.choices > 0) S.choose(st, t % 2 ? 'x' : 'r');
         let best = null;
         for (let i = 0; i < st.offers.length; i++) for (const [q, r] of S.frontier(st)) for (let k = 0; k < 6; k++) {

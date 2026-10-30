@@ -1,17 +1,17 @@
 === night check: greedy, 50 runs x 600 placements ===
-night reached in 50/50 runs, median placement 120.5
-end shares (mean): H 11.2%  F 3.2%  J 43.2%  S 20.5%  D 11.9%  M 2.0%  X 7.9%
-max single-terrain share across runs: 50.8%
-data centres at the end (median): clusters 53  largest 60 wedges (max 152)
-cooled on 87.0% of data-centre cluster-steps
-hamlet wedges absorbed per run (median): 96.5
-dreams per run (median): laid 157.5, came true 61.5
-dream ghosts on the map once data centres arrive: mean 3.8, max 16
-roads per run (median): built 9, town-steps a road kept fed 340; standing at once: mean 2.2, max 14
-doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.1 and 0.1); first opened (runs @ median placement) 1:50@48 2:26@353.5 3:3@371
-wild land per run (median): settled 64.5 wedges, Plex tiles given 24, turned into stars 7, perfect fits 13
+night reached in 50/50 runs, median placement 119
+end shares (mean): H 10.4%  F 3.0%  J 43.9%  S 20.5%  D 12.2%  M 2.2%  X 7.9%
+max single-terrain share across runs: 50.5%
+data centres at the end (median): clusters 54  largest 66.5 wedges (max 157)
+cooled on 89.9% of data-centre cluster-steps
+hamlet wedges absorbed per run (median): 103.5
+dreams per run (median): laid 167, came true 68
+dream ghosts on the map once data centres arrive: mean 4.2, max 15
+roads per run (median): built 6, town-steps a road kept fed 149; standing at once: mean 1.8, max 10
+doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.2 and 0.1); first opened (runs @ median placement) 1:50@46.5 2:25@317 3:1@257
+wild land per run (median): settled 38 wedges, Plex tiles given 24, turned into stars 9, perfect fits 13
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.8% in 5..30%, towns kept 50>=45, dreams come true 61.5>=5, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 12.5% in 5..30%, towns kept 50>=45, dreams come true 68>=5, X>=10% in 0 runs, errors 0]
 
-(111.9s)
+(160.5s)
