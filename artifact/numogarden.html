@@ -278,6 +278,9 @@ const CFG = {
   DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
   DOOR_NEAREST: true,   //   a door with no room at its mouth dreams on the nearest empty cells instead, searching outward
                         //   through the land (false = only at its mouth, which replays the rules before it)
+  LOOPS: true,          // closed loops of one current are found and drawn (specs/loops.md; no effect on the land yet)
+  LOOP_SETTLE: 2,       //   a pair counts as closed once it has been on a loop this many placements in a row
+  LOOP_QUIET: 20,       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
   HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
                         //   (false = only its own pair, which replays the rules before it; specs/loops.md)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
@@ -606,6 +609,7 @@ function step(state, ev) {
   const C = clusters(state);
   tagAndTier(state, C, ev);
   updateCurrents(state);
+  updateLoops(state, ev);
   rules(state, C, ev);
   doors(state, ev);
   rumors(state, ev);
@@ -1411,6 +1415,69 @@ function updateCurrents(state) {
   state.currents = out;
 }
 function activeCurrents(state) { return state.currents || []; }
+/* closed loops (specs/loops.md). Each current's live pairs make a graph on tiles; a pair is on a loop when its link is
+   not a bridge (Tarjan). c.loopFor counts the placements in a row it has been on one, and a pair is closed from
+   LOOP_SETTLE. Lingering pairs make no loops. A loop is a connected set of one current's closed pairs. */
+function onLoop(pairs) {
+  const adj = new Map(), add = (u, v, i) => (adj.get(u) || adj.set(u, []).get(u)).push([v, i]);
+  pairs.forEach((c, i) => { add(c.a, c.b, i); add(c.b, c.a, i); });
+  const disc = new Map(), low = new Map(), on = pairs.map(() => true); let time = 0;
+  for (const s of adj.keys()) {
+    if (disc.has(s)) continue;
+    const stack = [[s, -1, 0]]; disc.set(s, time); low.set(s, time++);
+    while (stack.length) {
+      const top = stack[stack.length - 1], u = top[0], nb = adj.get(u);
+      if (top[2] < nb.length) {
+        const [v, i] = nb[top[2]++]; if (i === top[1]) continue;
+        if (disc.has(v)) low.set(u, Math.min(low.get(u), disc.get(v)));
+        else { disc.set(v, time); low.set(v, time++); stack.push([v, i, 0]); }
+      } else {
+        stack.pop();
+        if (stack.length) { const w = stack[stack.length - 1][0]; low.set(w, Math.min(low.get(w), low.get(u))); if (low.get(u) > disc.get(w)) on[top[1]] = false; }
+      }
+    }
+  }
+  return on;
+}
+function closedLoops(state) {
+  const out = [], par = new Map(), find = x => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+  const closed = activeCurrents(state).filter(c => !c.gone && c.loopFor >= CFG.LOOP_SETTLE);
+  for (const c of closed) for (const id of [c.name + c.a, c.name + c.b]) if (!par.has(id)) par.set(id, id);
+  for (const c of closed) par.set(find(c.name + c.a), find(c.name + c.b));
+  const sets = new Map();
+  for (const c of closed) {
+    const r = find(c.name + c.a), L = sets.get(r) || sets.set(r, { name: c.name, pairs: [], tiles: new Set() }).get(r);
+    L.pairs.push(c); L.tiles.add(c.a).add(c.b);
+  }
+  for (const L of sets.values()) out.push({ name: L.name, pairs: L.pairs, tiles: [...L.tiles].sort((a, b) => a - b) });
+  return out;
+}
+function updateLoops(state, ev) {
+  if (!CFG.LOOPS || state.level < 1) return;
+  const by = {};
+  for (const c of activeCurrents(state)) { if (c.gone) c.loopFor = 0; else (by[c.name] || (by[c.name] = [])).push(c); }
+  for (const n in by) { const on = onLoop(by[n]); by[n].forEach((c, i) => { c.loopFor = on[i] ? (c.loopFor || 0) + 1 : 0; }); }
+  // a chronicle line when a loop closes, unless its tiles were on a closed loop of that current within LOOP_QUIET
+  const seen = state.loopSeen || (state.loopSeen = {}), byId = {};
+  for (const k in state.map) byId[state.map[k].id] = state.map[k];
+  for (const L of closedLoops(state)) {
+    const fresh = L.tiles.every(id => !(seen[L.name + id] >= state.turn - CFG.LOOP_QUIET));
+    for (const id of L.tiles) seen[L.name + id] = state.turn;
+    if (!fresh) continue;
+    state.stats.loops = (state.stats.loops || 0) + 1;
+    let near = null, nd = 4;
+    for (const id of L.tiles) {
+      const t = byId[id]; if (!t) continue;
+      for (const k in state.map) {
+        const u = state.map[k]; if (u.kind === 'r') continue;
+        const d = hexDist(t.q, t.r, u.q, u.r); if (d >= nd) continue;
+        for (let i = 0; i < 6; i++) { const G = state.groups[u.tg[i]]; if (u.w[i] === 'H' && G && G.name) { near = G.name; nd = d; break; } }
+      }
+    }
+    pushEvent(state, ev, 'loop', `A ${L.name} loop closed${near ? ' near ' + near : ''}.`, { calm: true, tiles: L.tiles });
+  }
+  for (const k in seen) if (seen[k] < state.turn - CFG.LOOP_QUIET) delete seen[k];
+}
 /* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
    Surge speeds towns up; Sink and Plex act once per current */
 function currentFx(state) {
@@ -1509,7 +1576,7 @@ function shares(state) {
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
   newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround, doorClumps, ORDINAL, believers,
-  syzygyPairs, currentArea, activeCurrents, updateCurrents };
+  syzygyPairs, currentArea, activeCurrents, updateCurrents, closedLoops };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);
@@ -3127,16 +3194,16 @@ function openInspector(tl, wi) {
     const byName = new Map();
     for (const x of currents) {
       if (!x.area.has(tl.id)) continue;
-      const g = byName.get(x.c.name) || { x, n: 0, end: false, live: false, area: new Set() };
+      const g = byName.get(x.c.name) || { x, n: 0, end: false, live: false, loop: false, area: new Set() };
       g.n++;
-      if (x.c.a === tl.id || x.c.b === tl.id) g.end = true;
+      if (x.c.a === tl.id || x.c.b === tl.id) { g.end = true; if (closedPair(x.c)) g.loop = true; }
       if (!x.c.gone) g.live = true;
       for (const id of x.area) g.area.add(id);
       byName.set(x.c.name, g);
     }
     for (const [name, g] of byName) {
       const c = g.x.c;
-      lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>`
+      lines += `<p class="readout"><span style="color:${g.x.col}">${name} current</span> ${c.hi}::${c.lo} · ${esc(S.DEMONS[S.mesh(c.hi, c.lo)][2])}${g.n > 1 ? ' · ' + g.n + ' here' : ''}${g.end ? ' · pair tile' : ''}${g.live ? '' : ' · fading'}</p>${g.loop ? `<p class="note">On a closed ${name} loop.</p>` : ''}`
         + `<p class="note">${CURRENT_TXT[name]}${name === 'Hold' && g.end ? ' This tile is at the end of a Hold current, so it is not held itself.' : ''}${g.live ? '' : ' Its zones no longer sum to nine, so it is fading.'}${currentNow(name, g.area)}</p>`;
     }
   }
@@ -3219,6 +3286,7 @@ function openInfo() {
         <li><b>Warp</b> 6::3, carried by Djynxx. ${CURRENT_TXT.Warp} A whole hamlet tile is zone 3 and a whole jungle or sea tile is zone 6, so Warp is the common one.</li>
         <li><b>Sink</b> 5::4, carried by Katak. ${CURRENT_TXT.Sink} Cities inside it lose their hold on the jungle.</li>
         <li>Two currents of the same kind on one tile don't add up: two Warps still run time twice as fast. Sink and Plex act once for each current. Tap a tile to see what its currents are doing.</li>
+        ${S.CFG.LOOPS ? `<li>Currents of one kind can join up into a closed loop, like a ring of four tiles where two touching tiles share two neighbours. A loop that stands for ${S.CFG.LOOP_SETTLE} placements is drawn as a solid circuit.</li>` : ''}
         ${S.CFG.DOORS ? `<li>A clump of Plex tiles is a door: one Plex tile is the first door, two together the second, up to the ninth. A door is open while as many Plex currents run from it as it has tiles. The first time it opens that far, its demon comes through, from Lurgo at the first door to Uttunul at the ninth. A zone 9 tile beside a Plex tile starts a Plex current: a whole field tile is zone 9, and so is a tile gone all wild.</li>
         <li>A door of three or more dreams while it is open. Every ${S.CFG.DOOR_BASE} placements, less one for each of its tiles, it lays a dream of its own zone in an empty spot beside it or beside one of its fully wild tiles${S.CFG.DOOR_NEAREST ? ', or on the nearest open ground once the land has closed in around it' : ''}, with up to ${S.CFG.DOOR_DREAM_MAX} out. A door's dream comes true once ${S.CFG.DOOR_NEED} neighbours agree with it, not counting wild land, for +${S.CFG.DOOR_STARS}★ and a visit from the door's demon. It doesn't fade while its door is open.</li>` : ''}
       </ul>
@@ -3239,7 +3307,7 @@ function openInfo() {
         <li>Glowing wedges change on your next placement. A dashed tile is about to be laid${state.level >= 4 ? ': crimson by a metropolis, violet for a dream' : ' by a metropolis'}.</li>
         <li>Vines grow on hamlets and fields that are fading.</li>
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null || state.stats.doorDreams ? ` Dreams are ghosts with drifting lines${state.stats.doorDreams ? ': violet from a data centre, crimson from a door' : ''}.` : ''}</li>
-        ${state.level >= 1 ? `<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.${state.level >= 4 ? ' At night only the zones of tiles with a current stay bright.' : ''}</li>` : ''}
+        ${state.level >= 1 ? `<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on. A solid line is a closed loop.${state.level >= 4 ? ' At night only the zones of tiles with a current stay bright.' : ''}</li>` : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
         ${(view.doors || []).some(d => d.open) || state.stats.doors ? '<li>An open door glows crimson.</li>' : ''}
         ${(view.roads || []).length || state.stats.roads ? `<li>A road starts as a dashed path and wears into a sandy road. Dots moving along it carry food to a hungry town. A green dashed road is overgrown.${state.level >= 4 ? ' At night old roads are lit.' : ''}</li>` : ''}
@@ -3469,6 +3537,8 @@ function drawCurrentTint() {
   ctx.globalAlpha = 1;
 }
 /* faint by day, bright at night; a current fades out while it lingers after its syzygy breaks */
+// a pair on a closed loop of its current (specs/loops.md), drawn as one solid circuit
+function closedPair(c) { return S.CFG.LOOPS && !c.gone && c.loopFor >= S.CFG.LOOP_SETTLE; }
 function drawCurrents(t) {
   if (!currents.length) return;
   const night = state.level >= 4, pad = cam.s * 1.5;
@@ -3480,7 +3550,9 @@ function drawCurrents(t) {
     if (Math.max(pa[0], pb[0]) < -pad || Math.min(pa[0], pb[0]) > W + pad || Math.max(pa[1], pb[1]) < -pad || Math.min(pa[1], pb[1]) > H + pad) continue;
     const [from, to] = c.top === b.id ? [pb, pa] : [pa, pb]; // currents run from the higher zone to the lower
     ctx.strokeStyle = col; ctx.globalAlpha = (night ? 0.85 : 0.45) * (1 - c.gone / (S.CFG.CURRENT_LINGER + 1));
+    if (closedPair(c)) { ctx.globalAlpha = night ? 1 : 0.75; ctx.save(); ctx.setLineDash([]); ctx.lineWidth *= 1.6; ctx.lineCap = 'round'; }
     ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]); ctx.stroke();
+    if (closedPair(c)) ctx.restore();
   }
   ctx.globalAlpha = 1; ctx.setLineDash([]); ctx.lineDashOffset = 0;
 }

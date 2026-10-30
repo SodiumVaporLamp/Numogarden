@@ -61,6 +61,9 @@ const CFG = {
   DOOR_NEED: 2, DOOR_STARS: 20, //   and doesn't fade while its door is open
   DOOR_NEAREST: true,   //   a door with no room at its mouth dreams on the nearest empty cells instead, searching outward
                         //   through the land (false = only at its mouth, which replays the rules before it)
+  LOOPS: true,          // closed loops of one current are found and drawn (specs/loops.md; no effect on the land yet)
+  LOOP_SETTLE: 2,       //   a pair counts as closed once it has been on a loop this many placements in a row
+  LOOP_QUIET: 20,       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
   HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
                         //   (false = only its own pair, which replays the rules before it; specs/loops.md)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
@@ -389,6 +392,7 @@ function step(state, ev) {
   const C = clusters(state);
   tagAndTier(state, C, ev);
   updateCurrents(state);
+  updateLoops(state, ev);
   rules(state, C, ev);
   doors(state, ev);
   rumors(state, ev);
@@ -1194,6 +1198,69 @@ function updateCurrents(state) {
   state.currents = out;
 }
 function activeCurrents(state) { return state.currents || []; }
+/* closed loops (specs/loops.md). Each current's live pairs make a graph on tiles; a pair is on a loop when its link is
+   not a bridge (Tarjan). c.loopFor counts the placements in a row it has been on one, and a pair is closed from
+   LOOP_SETTLE. Lingering pairs make no loops. A loop is a connected set of one current's closed pairs. */
+function onLoop(pairs) {
+  const adj = new Map(), add = (u, v, i) => (adj.get(u) || adj.set(u, []).get(u)).push([v, i]);
+  pairs.forEach((c, i) => { add(c.a, c.b, i); add(c.b, c.a, i); });
+  const disc = new Map(), low = new Map(), on = pairs.map(() => true); let time = 0;
+  for (const s of adj.keys()) {
+    if (disc.has(s)) continue;
+    const stack = [[s, -1, 0]]; disc.set(s, time); low.set(s, time++);
+    while (stack.length) {
+      const top = stack[stack.length - 1], u = top[0], nb = adj.get(u);
+      if (top[2] < nb.length) {
+        const [v, i] = nb[top[2]++]; if (i === top[1]) continue;
+        if (disc.has(v)) low.set(u, Math.min(low.get(u), disc.get(v)));
+        else { disc.set(v, time); low.set(v, time++); stack.push([v, i, 0]); }
+      } else {
+        stack.pop();
+        if (stack.length) { const w = stack[stack.length - 1][0]; low.set(w, Math.min(low.get(w), low.get(u))); if (low.get(u) > disc.get(w)) on[top[1]] = false; }
+      }
+    }
+  }
+  return on;
+}
+function closedLoops(state) {
+  const out = [], par = new Map(), find = x => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+  const closed = activeCurrents(state).filter(c => !c.gone && c.loopFor >= CFG.LOOP_SETTLE);
+  for (const c of closed) for (const id of [c.name + c.a, c.name + c.b]) if (!par.has(id)) par.set(id, id);
+  for (const c of closed) par.set(find(c.name + c.a), find(c.name + c.b));
+  const sets = new Map();
+  for (const c of closed) {
+    const r = find(c.name + c.a), L = sets.get(r) || sets.set(r, { name: c.name, pairs: [], tiles: new Set() }).get(r);
+    L.pairs.push(c); L.tiles.add(c.a).add(c.b);
+  }
+  for (const L of sets.values()) out.push({ name: L.name, pairs: L.pairs, tiles: [...L.tiles].sort((a, b) => a - b) });
+  return out;
+}
+function updateLoops(state, ev) {
+  if (!CFG.LOOPS || state.level < 1) return;
+  const by = {};
+  for (const c of activeCurrents(state)) { if (c.gone) c.loopFor = 0; else (by[c.name] || (by[c.name] = [])).push(c); }
+  for (const n in by) { const on = onLoop(by[n]); by[n].forEach((c, i) => { c.loopFor = on[i] ? (c.loopFor || 0) + 1 : 0; }); }
+  // a chronicle line when a loop closes, unless its tiles were on a closed loop of that current within LOOP_QUIET
+  const seen = state.loopSeen || (state.loopSeen = {}), byId = {};
+  for (const k in state.map) byId[state.map[k].id] = state.map[k];
+  for (const L of closedLoops(state)) {
+    const fresh = L.tiles.every(id => !(seen[L.name + id] >= state.turn - CFG.LOOP_QUIET));
+    for (const id of L.tiles) seen[L.name + id] = state.turn;
+    if (!fresh) continue;
+    state.stats.loops = (state.stats.loops || 0) + 1;
+    let near = null, nd = 4;
+    for (const id of L.tiles) {
+      const t = byId[id]; if (!t) continue;
+      for (const k in state.map) {
+        const u = state.map[k]; if (u.kind === 'r') continue;
+        const d = hexDist(t.q, t.r, u.q, u.r); if (d >= nd) continue;
+        for (let i = 0; i < 6; i++) { const G = state.groups[u.tg[i]]; if (u.w[i] === 'H' && G && G.name) { near = G.name; nd = d; break; } }
+      }
+    }
+    pushEvent(state, ev, 'loop', `A ${L.name} loop closed${near ? ' near ' + near : ''}.`, { calm: true, tiles: L.tiles });
+  }
+  for (const k in seen) if (seen[k] < state.turn - CFG.LOOP_QUIET) delete seen[k];
+}
 /* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
    Surge speeds towns up; Sink and Plex act once per current */
 function currentFx(state) {
@@ -1292,7 +1359,7 @@ function shares(state) {
 
 const Sim = { DIRS, BASE, LAND, XW, CFG, deckOf, DEMONS, CURRENTS, key, dr, aqOf, region, mesh, demonClass, rnd, rint, rot, matches, genTile,
   newGame, evalPlacement, frontier, ferryCells, hasNeighbour, hexDist, slotTiles, place, choose, clearTile, step, clusters, view, shares, tileZone, tierOf, settleSpots, isWildGround, doorClumps, ORDINAL, believers,
-  syzygyPairs, currentArea, activeCurrents, updateCurrents };
+  syzygyPairs, currentArea, activeCurrents, updateCurrents, closedLoops };
 if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
 else root.Sim = Sim;
 })(typeof window !== 'undefined' ? window : this);

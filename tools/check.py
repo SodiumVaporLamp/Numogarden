@@ -5,7 +5,8 @@ the data-centre art: a big data centre at night, cool and running hot, in worlds
 page. Pass = 10 placements land and change the score, the tile tap opens the inspector, undo and reload work, no
 sideways overflow, a non-blank canvas, the night world's town and data centre light up with their food and cooling,
 the explainer describes roads, settling wild land and doors, the big data centre's heart draws as a matrioshka with
-no tile below campus, a big one runs hot, and zero console errors.
+no tile below campus, a big one runs hot, a closed loop draws and its tile's inspector says so, and zero console
+errors.
 
 Google Fonts requests are stubbed because sandboxes often cannot reach them; that only swaps
 the typefaces for fallbacks. Drop the two page.route lines to test with real fonts.
@@ -119,9 +120,10 @@ async def night_world(page):
     res['explainer_has_roads'] = await page.evaluate('document.getElementById("sheet").innerText.includes("build a road")')
     res['explainer_has_settling'] = await page.evaluate('document.getElementById("sheet").textContent.includes("Wild land settles")')
     res['explainer_has_doors'] = await page.evaluate('(t => t.includes("is a door") && t.includes("dreams while it is open"))(document.getElementById("sheet").textContent)')
+    res['explainer_has_loops'] = await page.evaluate('document.getElementById("sheet").textContent.includes("closed loop")')
     await page.tap('#closeS'); await page.wait_for_timeout(100)
     res['ok'] = (made['dcSince'] is not None and res['explainer_has_night'] and res['explainer_has_roads']
-                 and res['explainer_has_settling'] and res['explainer_has_doors']
+                 and res['explainer_has_settling'] and res['explainer_has_doors'] and res['explainer_has_loops']
                  and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
     return res
 
@@ -169,6 +171,27 @@ DC_SHOT = '''(hot) => { // the camera on the biggest data centre (running hot, f
     min: names[Math.min(...arts.map(a => a.T))], split: Object.keys(sizes).sort((a, b) => b - a).map(T => sizes[T] + ' ' + names[T]).join(', '),
     top_tile_hot: aim.a.hot, falling: tiles.reduce((n, t) => n + t.w.filter((w, i) => w === 'D' && t.d[i] > 0).length, 0), pieces: __numo.dcPieces };
 }'''
+LOOP_AIM = """() => { // the biggest closed loop, centred, and the screen point of one of its tiles
+  const st = __numo.state, all = window.Sim.closedLoops(st), L = all.sort((a, b) => b.tiles.length - a.tiles.length)[0];
+  if (!L) return null; const byId = {}; for (const k in st.map) byId[st.map[k].id] = st.map[k];
+  const ts = L.tiles.map(id => byId[id]), cs = ts.map(t => __numo.hexCenter(t.q, t.r)), cam = __numo.cam;
+  cam.x = cs.reduce((a, c) => a + c[0], 0) / cs.length; cam.y = cs.reduce((a, c) => a + c[1], 0) / cs.length; cam.s = 46; __numo.ui.dirty = true;
+  const p = __numo.toScreen(cs[0][0], cs[0][1]), r = document.getElementById('board').getBoundingClientRect();
+  return { name: L.name, tiles: L.tiles.length, loops: all.length, x: r.left + p[0], y: r.top + p[1] }; }"""
+async def loop_world(page):
+    """Closed loops: the harness greedy bot's game on seed 1000 after 400 placements, centred on its biggest closed
+    loop (a Hold diamond today), photographed, and a tap on one of its tiles, whose inspector should say it is on a
+    closed loop."""
+    made = await page.evaluate(GREEDY, [1000, 400, 0])
+    await page.reload(); await page.wait_for_timeout(900)
+    res = dict(turn=made['turn'], loop=await page.evaluate(LOOP_AIM)); await page.wait_for_timeout(300)
+    await page.screenshot(path=str(ROOT / 'results/phone-check-loop.png'))
+    if res['loop']:
+        await page.touchscreen.tap(res['loop']['x'], res['loop']['y']); await page.wait_for_timeout(700)
+        res['sheet_says_loop'] = await page.evaluate('document.getElementById("sheet").textContent.includes("On a closed")')
+        await page.reload(); await page.wait_for_timeout(500)
+    res['ok'] = bool(res['loop'] and res.get('sheet_says_loop'))
+    return res
 async def dc_world(page):
     """Data-centre art. Cool: the lab sheet's coast, the harness greedy bot's game on seed 183137 after 900 placements,
     centred on its biggest data centre's heart, which should draw as a matrioshka with no tile below campus; the frame
@@ -254,12 +277,13 @@ async def main():
         day = await day_town(page)
         night = await night_world(page)
         dc = await dc_world(page)
+        loops = await loop_world(page)
         ok = (placed == 10 and after['turn'] - before['turn'] == 10 and after['stars'] > before['stars']
               and undone == after['turn'] - 1 and reloaded == undone and overflow <= 0 and distinct > 50 and inspector
-              and day['ok'] and night['ok'] and dc['ok'] and not errors)
+              and day['ok'] and night['ok'] and dc['ok'] and loops['ok'] and not errors)
         print('PHONE CHECK:', 'PASS' if ok else 'FAIL')
         print(json.dumps({'before': before, 'after': after, 'placed': placed, 'inspector_opens': inspector, 'turn_after_undo': undone, 'turn_after_reload': reloaded,
-                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'day_town': day, 'night_world': night, 'data_centres': dc, 'errors': errors}, indent=1))
+                          'h_overflow_px': overflow, 'distinct_canvas_colours': distinct, 'day_town': day, 'night_world': night, 'data_centres': dc, 'loops': loops, 'errors': errors}, indent=1))
         await b.close()
         return ok
 sys.exit(0 if asyncio.run(main()) else 1)
