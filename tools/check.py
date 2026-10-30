@@ -193,11 +193,11 @@ async def loop_world(page):
     res['ok'] = bool(res['loop'] and res.get('sheet_says_loop'))
     return res
 async def dc_world(page):
-    """Data-centre art. Cool: the lab sheet's coast, the harness greedy bot's game on seed 183137 after 900 placements,
+    """Data-centre art. Cool: the harness greedy bot's game on seed 16838 after 900 placements (183137, the lab sheet's coast, until loops),
     centred on its biggest data centre's heart, which should draw as a matrioshka with no tile below campus; the frame
     time there is reported. Hot: seed 40595 played until a data centre of 49+ wedges runs hot with a wedge about to fall,
     photographed while its lights are on (they blink on one shared beat)."""
-    made = await page.evaluate(GREEDY, [183137, 900, 0])
+    made = await page.evaluate(GREEDY, [16838, 900, 0])
     await page.reload(); await page.wait_for_timeout(900)
     cool = await page.evaluate(DC_SHOT, False); await page.wait_for_timeout(300)
     await page.screenshot(path=str(ROOT / 'results/phone-check-dc-night.png'))

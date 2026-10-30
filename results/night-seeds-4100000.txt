@@ -1,17 +1,17 @@
 === night check: greedy, 50 runs x 600 placements ===
 night reached in 50/50 runs, median placement 122.5
-end shares (mean): H 10.4%  F 3.2%  J 44.0%  S 20.5%  D 12.0%  M 2.0%  X 8.0%
-max single-terrain share across runs: 51.5%
-data centres at the end (median): clusters 51.5  largest 79.5 wedges (max 242)
-cooled on 90.5% of data-centre cluster-steps
-hamlet wedges absorbed per run (median): 98
-dreams per run (median): laid 149.5, came true 62
-dream ghosts on the map once data centres arrive: mean 4.0, max 16
-roads per run (median): built 6, town-steps a road kept fed 124; standing at once: mean 1.5, max 8
-doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.1 and 0.0); first opened (runs @ median placement) 1:50@54.5 2:29@276 3:1@509
-wild land per run (median): settled 35 wedges, Plex tiles given 23, turned into stars 8, perfect fits 12
+end shares (mean): H 10.3%  F 3.0%  J 44.3%  S 20.4%  D 11.8%  M 2.2%  X 7.9%
+max single-terrain share across runs: 53.3%
+data centres at the end (median): clusters 56  largest 63 wedges (max 183)
+cooled on 90.4% of data-centre cluster-steps
+hamlet wedges absorbed per run (median): 101.5
+dreams per run (median): laid 165.5, came true 64
+dream ghosts on the map once data centres arrive: mean 4.3, max 18
+roads per run (median): built 5.5, town-steps a road kept fed 130; standing at once: mean 1.4, max 7
+doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@54.5 2:28@272.5 3:1@312
+wild land per run (median): settled 35.5 wedges, Plex tiles given 23, turned into stars 9, perfect fits 12.5
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.9% in 5..30%, towns kept 50>=45, dreams come true 62>=5, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.8% in 5..30%, towns kept 50>=45, dreams come true 64>=5, X>=10% in 0 runs, errors 0]
 
-(171.2s)
+(197.4s)

@@ -1,17 +1,17 @@
 === night check: greedy, 50 runs x 600 placements ===
 night reached in 50/50 runs, median placement 120
-end shares (mean): H 10.3%  F 2.9%  J 44.1%  S 20.4%  D 12.1%  M 2.2%  X 8.0%
-max single-terrain share across runs: 49.8%
-data centres at the end (median): clusters 53  largest 62.5 wedges (max 321)
-cooled on 89.4% of data-centre cluster-steps
+end shares (mean): H 10.2%  F 2.8%  J 44.7%  S 20.1%  D 12.0%  M 2.2%  X 8.0%
+max single-terrain share across runs: 51.8%
+data centres at the end (median): clusters 50  largest 73.5 wedges (max 220)
+cooled on 89.1% of data-centre cluster-steps
 hamlet wedges absorbed per run (median): 105
-dreams per run (median): laid 164.5, came true 68
-dream ghosts on the map once data centres arrive: mean 4.1, max 15
-roads per run (median): built 7, town-steps a road kept fed 260.5; standing at once: mean 1.9, max 12
-doors: openings per run (median) 22, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@41 2:29@302 3:1@430
-wild land per run (median): settled 44 wedges, Plex tiles given 24.5, turned into stars 8.5, perfect fits 14
+dreams per run (median): laid 164.5, came true 63
+dream ghosts on the map once data centres arrive: mean 4.1, max 16
+roads per run (median): built 6, town-steps a road kept fed 255.5; standing at once: mean 1.7, max 12
+doors: openings per run (median) 21, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@41 2:31@285
+wild land per run (median): settled 40.5 wedges, Plex tiles given 24, turned into stars 8.5, perfect fits 13
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.9% in 5..30%, towns kept 50>=45, dreams come true 68>=5, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.7% in 5..30%, towns kept 50>=45, dreams come true 63>=5, X>=10% in 0 runs, errors 0]
 
-(144.3s)
+(173.4s)

@@ -64,7 +64,8 @@ const CFG = {
   LOOPS: true,          // closed loops of one current are found and drawn (specs/loops.md; no effect on the land yet)
   LOOP_SETTLE: 2,       //   a pair counts as closed once it has been on a loop this many placements in a row
   LOOP_QUIET: 20,
-  LOOP_FX: ['Warp', 'Surge', 'Hold', 'Sink', 'Plex'], // the currents a closed loop doubles ([] = loops have no effect)       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
+  LOOP_FX: ['Warp', 'Surge', 'Hold', 'Sink', 'Plex'], // the currents a closed loop doubles ([] = loops have no effect)
+  LOOP_DREAMS: true,    //   a data centre touching a closed loop's area dreams every DREAM_EVERY / 2 placements       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
   HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
                         //   (false = only its own pair, which replays the rules before it; specs/loops.md)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
@@ -840,7 +841,8 @@ function rules(state, C, ev) {
     const G = state.groups[g.tag];
     if (!g.cooled || !G) continue;
     if (G.lastDream == null) G.lastDream = state.turn;
-    if (state.turn - G.lastDream < CFG.DREAM_EVERY || (dreamsOut[g.tag] || 0) >= CFG.DREAM_MAX) continue;
+    const every = CFG.LOOP_DREAMS && fx.looped.size && g.w.some(x => fx.looped.has(tid(x))) ? CFG.DREAM_EVERY / 2 : CFG.DREAM_EVERY; // a closed loop beside it: twice as often
+    if (state.turn - G.lastDream < every || (dreamsOut[g.tag] || 0) >= CFG.DREAM_MAX) continue;
     const cells = [], touch = { H: 0, F: 0, J: 0, S: 0 }, seen = new Set();
     for (const x of g.w) {
       for (const y of adjW(C, x)) { const c = wt(C, y); if (c in touch && !seen.has(y)) { seen.add(y); touch[c]++; } }
@@ -1272,7 +1274,7 @@ function updateLoops(state, ev) {
 /* what the currents do this step, by tile id: Hold freezes its surroundings, Warp doubles decay and building,
    Surge speeds towns up; Sink and Plex act once per current */
 function currentFx(state) {
-  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [], warp2: new Set(), surge2: new Set() };
+  const fx = { hold: new Set(), warp: new Set(), surge: new Set(), sunk: new Set(), sink: [], plex: [], warp2: new Set(), surge2: new Set(), looped: new Set() };
   if (!CFG.CURRENT_FX) return fx;
   // Hold is a calm eye: it holds the land around its pair but not the pair, so it can still end. With HOLD_EYE_LOOPS it
   // holds no tile at either end of any Hold current, so a loop of Hold currents can't hold itself either (specs/loops.md)
@@ -1284,6 +1286,7 @@ function currentFx(state) {
     // a closed loop doubles its current (specs/loops.md): Warp and Surge areas count twice, once however many loops
     // cover a tile, and each closed Sink or Plex pair acts twice. Hold lingers twice as long (updateCurrents)
     const twice = loopFx(c);
+    if (CFG.LOOPS && !c.gone && c.loopFor >= CFG.LOOP_SETTLE) for (const t of area) fx.looped.add(t.id); // closed areas, for the data-centre boost
     if (c.name === 'Warp' || c.name === 'Surge') { const n = c.name.toLowerCase(); for (const t of area) { fx[n].add(t.id); if (twice) fx[n + '2'].add(t.id); } }
     else if (c.name === 'Sink') { fx.sink.push(area); if (twice) fx.sink.push(area); for (const t of area) fx.sunk.add(t.id); }
     else if (c.name === 'Plex' && state.turn > c.since && (state.turn - c.since) % CFG.PLEX_EVERY === 0) { fx.plex.push(area); if (twice) fx.plex.push(area); }
