@@ -817,12 +817,12 @@ function openInspector(tl, wi) {
   }
   let lines = dcFirst ? dcLines + townLines : townLines + dcLines;
   if (tl.kind === 'r' && tl.door) {
-    const { ok, need } = S.believers(state, tl), mine = (view.doors || []).find(d => d.ids.includes(tl.doorOf));
-    lines += `<p>The ${S.ORDINAL[tl.door]} door dreamed this. ${ok} of ${need} believers so far. Wild land doesn't count.</p>`
+    const { ok, need, lemurs } = S.believers(state, tl), mine = (view.doors || []).find(d => d.ids.includes(tl.doorOf));
+    lines += `<p>The ${S.ORDINAL[tl.door]} door dreamed this. ${ok} of ${need} believers so far. Wild land doesn't count.${believerNote(lemurs)}</p>`
       + `<p class="note">${mine && mine.open ? "It won't fade while its door is open." : `Its door is closed, so it fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.`} If it comes true it gives +${S.CFG.DOOR_STARS}★, and the door's demon comes to see it.</p>`;
   } else if (tl.kind === 'r') {
-    const { ok } = S.believers(state, tl);
-    lines += `<p>${tl.dream ? (tl.w.includes('D') ? 'A data centre dreamed this. The sides touching the machine are data centre, so they already agree. ' : 'A data centre dreamed this. ') : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far. It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
+    const { ok, lemurs } = S.believers(state, tl);
+    lines += `<p>${tl.dream ? (tl.w.includes('D') ? 'A data centre dreamed this. The sides touching the machine are data centre, so they already agree. ' : 'A data centre dreamed this. ') : ''}${ok} of ${S.CFG.RUMOR_NEED} believers so far.${believerNote(lemurs)} It fades after placement ${tl.born + S.CFG.RUMOR_LIFE + 1} unless the land believes it.</p>`;
   }
   const door = tl.kind === 'x' ? (view.doors || []).find(d => d.ids.includes(tl.id)) : null;
   if (door) lines += `<p>${doorLine(door)}</p>${door.open ? '' : '<p class="note">A zone 9 tile beside it starts a Plex current: a whole field tile, or a tile gone all wild.</p>'}`;
@@ -857,6 +857,27 @@ function openInspector(tl, wi) {
   openSheet(`<h2>${title}</h2><div class="chips">${chips}</div>${lines}<button type="button" class="btn sheet-close" id="closeS">Close</button>`, true);
   $('closeS').addEventListener('click', closeSheet);
 }
+/* lemurs and ghosts (specs/lemurs.md): who believes in a ghost, and what a lemur is doing */
+function believerNote(lemurs) {
+  if (!lemurs || !lemurs.length) return '';
+  const names = lemurs.map(l => S.DEMONS[l.d][2]);
+  return ` ${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' believe' : names[0] + ' believes'} in it, which counts as one.`;
+}
+function lemurGhost(l) { // the rumor or door dream a lemur is heading for or believing in, as walkLemurs picks it
+  const at = state.map[l.at || l.k]; if (!at || !S.CFG.LEMURS_WALK) return null;
+  let goal = null, gd = S.CFG.LEMUR_REACH + 1;
+  for (const k in state.map) {
+    const g = state.map[k]; if (g.kind !== 'r' || (g.dream && !g.door)) continue;
+    const d = S.hexDist(at.q, at.r, g.q, g.r); if (d < gd || (d === gd && goal && g.id < goal.id)) { goal = g; gd = d; }
+  }
+  return goal ? { g: goal, d: gd } : null;
+}
+function lemurDoing(l) {
+  const x = lemurGhost(l), what = x ? (x.g.door ? 'a door dream' : 'a rumor') : '';
+  if (!x) return 'It wanders near where it arrived.';
+  if (x.d <= 1 && S.CFG.LEMUR_BELIEVE) return `It believes in ${what} beside it, which counts as one believer.`;
+  return `It is on its way to ${what}.`;
+}
 function openLemur(l) {
   const [a, b, name] = S.DEMONS[l.d], cls = S.demonClass(a, b), aq = S.aqOf(name), z = S.dr(aq);
   const home = z === a || z === b || (z === 9 && b === 0);
@@ -866,7 +887,7 @@ function openLemur(l) {
     <p>${esc(LORE[l.d] || '')}</p>
     <p class="readout">AQ ${esc(name)} = ${aq} → zone ${z}${home ? ' · its name comes home' : ''}</p>
     ${l.door ? `<p class="note">It came through the ${S.ORDINAL[l.door]} door.</p>` : ''}
-    <p class="note">Arrived at placement ${l.born}. Visitors wander near where they arrived and leave when newer ones crowd in.</p>
+    <p class="note">Arrived at placement ${l.born}. ${lemurDoing(l)} Visitors leave when newer ones crowd in.</p>
     <p class="note">Name, zone pair and description from <a href="https://claude.ai/artifact/1u4CmPQFRszxxz2beVf3Ae" target="_blank" rel="noopener">Numogram Lab</a>.</p>
     <button type="button" class="btn sheet-close" id="closeS">Close</button>`);
   $('closeS').addEventListener('click', closeSheet);
@@ -882,6 +903,7 @@ function openInfo() {
       <li>Pick a tile in the tray, tap a spot to try it, tap the tile again to turn it, then Place. Drag to move around and pinch to zoom.</li>
       <li>Each edge that matches its neighbour earns a star. With Show clean fits on, teal spots mark where the tile fits cleanly.</li>
       <li>Clean fits fill the gift meter, snug ones (3 or more neighbours) twice as fast. A full meter offers a Plex tile or a Rumor.</li>
+      ${S.CFG.LEMURS_WALK && S.CFG.LEMUR_BELIEVE && state.level >= 1 ? `<li>Visitors walk to rumors and door dreams within ${S.CFG.LEMUR_REACH} hexes. Visitors beside a ghost count as one believer between them.</li>` : ''}
       <li>A perfect fit, 4 or more neighbours all agreeing, gives a Plex tile straight away.</li>
       <li>Undo takes back your last move. You cannot lose.</li>
     </ul>
@@ -1412,6 +1434,12 @@ function noteLemurSteps() {
 function lemurPos(l, t) {
   const at = l.at || l.k, cen = k => hexCenter(...k.split(',').map(Number));
   let c = cen(at);
+  const x = S.CFG.LEMUR_BELIEVE ? lemurGhost(l) : null;
+  if (x && x.d === 1) { // believing: it sits by the edge it shares with the ghost and turns to face it
+    const gc = hexCenter(x.g.q, x.g.r), sit = [c[0] + (gc[0] - c[0]) * 0.36, c[1] + (gc[1] - c[1]) * 0.36];
+    const tt = RM ? 0 : t; // drawLemurs faces it right for a = -PI/2 and dir 1, left for dir -1
+    return [sit[0] + Math.sin(tt * 1.3 + l.s) * 0.03, sit[1], -Math.PI / 2, gc[0] >= c[0] ? 1 : -1];
+  }
   const g = lemurGlide.get(l.s);
   if (g) {
     const u = Math.min(1, (performance.now() - g.t0) / LEMUR_GLIDE), e = u * u * (3 - 2 * u), f = cen(g.from);

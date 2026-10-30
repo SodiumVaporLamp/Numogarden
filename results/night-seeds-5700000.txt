@@ -1,17 +1,17 @@
 === night check: greedy, 50 runs x 600 placements ===
-night reached in 50/50 runs, median placement 120
-end shares (mean): H 10.3%  F 2.9%  J 44.5%  S 20.5%  D 11.8%  M 2.0%  X 7.9%
-max single-terrain share across runs: 49.4%
-data centres at the end (median): clusters 52  largest 59 wedges (max 212)
-cooled on 90.2% of data-centre cluster-steps
-hamlet wedges absorbed per run (median): 98.5
-dreams per run (median): laid 156, came true 63.5
-dream ghosts on the map once data centres arrive: mean 3.9, max 15
-roads per run (median): built 5, town-steps a road kept fed 197.5; standing at once: mean 2.0, max 15
-doors: openings per run (median) 22, door dreams laid 0, came true 0 (means 0.0 and 0.0); first opened (runs @ median placement) 1:50@53.5 2:30@321
-wild land per run (median): settled 30 wedges, Plex tiles given 25, turned into stars 7, perfect fits 13
+night reached in 50/50 runs, median placement 119
+end shares (mean): H 9.9%  F 3.1%  J 44.7%  S 20.4%  D 12.0%  M 2.0%  X 7.9%
+max single-terrain share across runs: 52.0%
+data centres at the end (median): clusters 52  largest 70.5 wedges (max 192)
+cooled on 89.8% of data-centre cluster-steps
+hamlet wedges absorbed per run (median): 104
+dreams per run (median): laid 163, came true 63.5
+dream ghosts on the map once data centres arrive: mean 4.1, max 18
+roads per run (median): built 6, town-steps a road kept fed 205; standing at once: mean 1.7, max 7
+doors: openings per run (median) 22, door dreams laid 0, came true 0 (means 0.1 and 0.1); first opened (runs @ median placement) 1:50@54.5 2:27@300 3:3@284
+wild land per run (median): settled 34 wedges, Plex tiles given 24, turned into stars 7, perfect fits 12
 towns kept (a 12+ town or a data centre with a town's name) in 50/50 runs
 errors: 0
-NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 11.9% in 5..30%, towns kept 50>=45, dreams come true 63.5>=5, X>=10% in 0 runs, errors 0]
+NIGHT PASS CRITERIA (greedy): PASS  [dominance 0<=5, median D 12.0% in 5..30%, towns kept 50>=45, dreams come true 63.5>=5, X>=10% in 0 runs, errors 0]
 
-(145.7s)
+(240.2s)

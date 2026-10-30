@@ -121,9 +121,10 @@ async def night_world(page):
     res['explainer_has_settling'] = await page.evaluate('document.getElementById("sheet").textContent.includes("Wild land settles")')
     res['explainer_has_doors'] = await page.evaluate('(t => t.includes("is a door") && t.includes("dreams while it is open"))(document.getElementById("sheet").textContent)')
     res['explainer_has_loops'] = await page.evaluate('document.getElementById("sheet").textContent.includes("closed loop")')
+    res['explainer_has_believing'] = await page.evaluate('document.getElementById("sheet").textContent.includes("count as one believer")')
     await page.tap('#closeS'); await page.wait_for_timeout(100)
     res['ok'] = (made['dcSince'] is not None and res['explainer_has_night'] and res['explainer_has_roads']
-                 and res['explainer_has_settling'] and res['explainer_has_doors'] and res['explainer_has_loops']
+                 and res['explainer_has_settling'] and res['explainer_has_doors'] and res['explainer_has_loops'] and res['explainer_has_believing']
                  and all(isinstance(res[T], dict) and res[T]['sheet_names_it'] and res[T]['lit_after_close'] and res[T]['hint_names_it'] and res[T]['tap_clears'] for T in 'HD'))
     return res
 

@@ -71,6 +71,7 @@ const CFG = {
   LEMURS_WALK: true,    // lemurs stand on real tiles and step one hex a placement toward the nearest rumor or door dream
   LEMUR_REACH: 4,       //   within this many hexes, and otherwise wander within LEMUR_HOME of where they arrived. Their
   LEMUR_HOME: 2,        //   steps come from their own seed, never state.rng (false = they stay where they arrived)
+  LEMUR_BELIEVE: true,  // walking lemurs beside a rumor or door dream add one believer between them
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -1112,7 +1113,13 @@ function believers(state, t) {
     if (t.door && f === 'X') continue;
     if (matches(t.w[i], f)) ok++;
   }
-  return { ok, need: t.door ? CFG.DOOR_NEED : CFG.RUMOR_NEED };
+  const lemurs = lemursBeside(state, t); // however many stand beside it, they count as one believer
+  if (lemurs.length) ok++;
+  return { ok, need: t.door ? CFG.DOOR_NEED : CFG.RUMOR_NEED, lemurs };
+}
+function lemursBeside(state, t) {
+  if (!CFG.LEMURS_WALK || !CFG.LEMUR_BELIEVE || !believes(t) || !state.lemurs.length) return [];
+  return state.lemurs.filter(l => { const at = state.map[l.at || l.k]; return at && at.kind !== 'r' && hexDist(at.q, at.r, t.q, t.r) === 1; });
 }
 
 /* lemurs walk (specs/lemurs.md): each placement a lemur steps one hex over real land toward the nearest rumor or door
@@ -1153,12 +1160,14 @@ function rumors(state, ev) {
   for (const k of Object.keys(state.map)) {
     const t = state.map[k];
     if (t.kind !== 'r') continue;
-    const { ok, need } = believers(state, t);
+    const { ok, need, lemurs } = believers(state, t);
+    const by = lemurs.length && ok - 1 < need ? DEMONS[lemurs[0].d][2] : null; // a lemur tipped it
+    if (by && ok >= need) state.stats.lemurBelieved = (state.stats.lemurBelieved || 0) + 1;
     if (ok >= need && t.door) {
       t.kind = 'n'; t.real = state.turn;
       state.stars += CFG.DOOR_STARS;
       state.stats.doorDreamsReal = (state.stats.doorDreamsReal || 0) + 1;
-      pushEvent(state, ev, 'rumor', `A dream from the ${ORDINAL[t.door]} door came true (+${CFG.DOOR_STARS}★).`, { k });
+      pushEvent(state, ev, 'rumor', `A dream from the ${ORDINAL[t.door]} door came true${by ? ', with ' + by + ' believing in it' : ''} (+${CFG.DOOR_STARS}★).`, { k });
       const dm = mesh(t.door, 0); // the door's demon comes to see it, unless it is already here
       if (!state.lemurs.some(l => l.d === dm)) spawnLemur(state, dm, k, ev, 'rumor');
     } else if (t.door) {
@@ -1168,7 +1177,7 @@ function rumors(state, ev) {
       t.kind = 'n'; t.real = state.turn;
       state.stars += 10;
       if (t.dream) state.stats.dreamsReal = (state.stats.dreamsReal || 0) + 1; else state.stats.rumorsReal++;
-      pushEvent(state, ev, 'rumor', t.dream ? 'A dream came true because enough of the land believed it (+10★).' : 'A rumor became real because enough of the land believed it (+10★).', { k });
+      pushEvent(state, ev, 'rumor', t.dream ? 'A dream came true because enough of the land believed it (+10★).' : by ? `A rumor became real: the land and ${by} believed it (+10★).` : 'A rumor became real because enough of the land believed it (+10★).', { k });
       const zs = [];
       for (const d of DIRS) { const nb = state.map[key(t.q + d[0], t.r + d[1])]; if (nb && nb.z !== t.z) zs.push(nb.z); }
       const z2 = zs.length ? zs[rint(state.rng, zs.length)] : (t.z + 4) % 10;
