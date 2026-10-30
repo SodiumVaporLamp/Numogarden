@@ -68,6 +68,9 @@ const CFG = {
   LOOP_DREAMS: true,    //   a data centre touching a closed loop's area dreams every DREAM_EVERY / 2 placements       //   no chronicle line for a loop whose tiles were on a closed loop of its current this recently
   HOLD_EYE_LOOPS: true, // a Hold current holds no tile at either end of any Hold current, so Hold loops can break
                         //   (false = only its own pair, which replays the rules before it; specs/loops.md)
+  LEMURS_WALK: true,    // lemurs stand on real tiles and step one hex a placement toward the nearest rumor or door dream
+  LEMUR_REACH: 4,       //   within this many hexes, and otherwise wander within LEMUR_HOME of where they arrived. Their
+  LEMUR_HOME: 2,        //   steps come from their own seed, never state.rng (false = they stay where they arrived)
   RUMOR_LIFE: 15, RUMOR_NEED: 3,
   HAND_MAX: 4, LEMUR_MAX: 10, METER_MAX: 15,
   TIERS: { H: [1, 6, 12, 24, 40], S: [1, 10, 20, 35], J: [1, 12, 30], F: [1, 10, 25], D: [1] },
@@ -253,7 +256,7 @@ function pushEvent(state, ev, kind, txt, extra) {
 function spawnLemur(state, d, k, ev, why, door) {
   if (state.level < 1) return;
   const [a, b, name] = DEMONS[d];
-  const l = { d, k, born: state.turn, s: rint(state.rng, 1e9) };
+  const l = { d, k, at: k, born: state.turn, s: rint(state.rng, 1e9) };
   if (why === 'door') l.door = door;
   state.lemurs.push(l);
   if (state.lemurs.length > CFG.LEMUR_MAX) state.lemurs.shift();
@@ -397,6 +400,7 @@ function step(state, ev) {
   updateLoops(state, ev);
   rules(state, C, ev);
   doors(state, ev);
+  walkLemurs(state);
   rumors(state, ev);
   levelUp(state, ev);
   nightDeck(state, ev);
@@ -1111,6 +1115,39 @@ function believers(state, t) {
   return { ok, need: t.door ? CFG.DOOR_NEED : CFG.RUMOR_NEED };
 }
 
+/* lemurs walk (specs/lemurs.md): each placement a lemur steps one hex over real land toward the nearest rumor or door
+   dream within LEMUR_REACH, stopping beside it, and otherwise wanders within LEMUR_HOME of where it arrived on half the
+   placements. Its choices come from a hash of its own seed and the placement, so walking draws nothing from state.rng. */
+function lemurHash(l, turn) {
+  let h = (l.s ^ Math.imul(turn + 1, 0x9E3779B1)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B) >>> 0; h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+const believes = t => t.kind === 'r' && (!!t.door || !t.dream); // the ghosts lemurs care about: rumors and door dreams
+function walkLemurs(state) {
+  if (!CFG.LEMURS_WALK || !state.lemurs.length) return;
+  const ghosts = [];
+  for (const k in state.map) if (believes(state.map[k])) ghosts.push(state.map[k]);
+  const real = (q, r) => { const t = state.map[key(q, r)]; return t && t.kind !== 'r' ? t : null; };
+  for (const l of state.lemurs) {
+    if (!l.at) l.at = l.k; // a world saved before lemurs walked
+    const cur = state.map[l.at]; if (!cur) continue; // its tile was cleared: it waits for land
+    let goal = null, gd = CFG.LEMUR_REACH + 1;
+    for (const g of ghosts) { const d = hexDist(cur.q, cur.r, g.q, g.r); if (d < gd || (d === gd && goal && g.id < goal.id)) { goal = g; gd = d; } }
+    const h = lemurHash(l, state.turn), steps = [];
+    if (goal) {
+      if (gd <= 1) continue; // beside it
+      for (const [dq, dr] of DIRS) { const n = real(cur.q + dq, cur.r + dr); if (n && hexDist(n.q, n.r, goal.q, goal.r) < gd) steps.push(n); }
+    } else {
+      if (h % 2) continue;
+      const [hq, hr] = l.k.split(',').map(Number);
+      for (const [dq, dr] of DIRS) { const n = real(cur.q + dq, cur.r + dr); if (n && hexDist(n.q, n.r, hq, hr) <= CFG.LEMUR_HOME) steps.push(n); }
+    }
+    if (!steps.length) continue;
+    const n = steps[(h >>> 1) % steps.length];
+    l.at = key(n.q, n.r);
+  }
+}
 function rumors(state, ev) {
   let openDoors = null; // tiles of open doors: a door's dream doesn't fade while its door is open
   for (const k of Object.keys(state.map)) {

@@ -312,7 +312,7 @@ function refresh() {
     currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) }); inCurrent.add(a.id).add(b.id);
     for (const t of area) (tint[t.id] || (tint[t.id] = new Set())).add(col);
   }
-  planArt();
+  planArt(); noteLemurSteps();
   if (ui.ghost && state.map[S.key(ui.ghost.q, ui.ghost.r)] && !S.isWildGround(state.map[S.key(ui.ghost.q, ui.ghost.r)])) ui.ghost = null;
   if (ui.mode === 'ferry' && state.ferries <= 0) ui.mode = 'place';
   if (ui.mode === 'builder' && state.builders <= 0) { ui.mode = 'place'; ui.clearKey = null; }
@@ -1399,9 +1399,24 @@ function drawClearTarget() {
   hexPath(1.02); ctx.lineWidth = 3 / cam.s; ctx.strokeStyle = '#C23B5A'; ctx.setLineDash([7 / cam.s, 5 / cam.s]); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(194,59,90,.18)'; ctx.fill();
 }
+/* lemurs stand on a tile in the rules (l.at, walkLemurs in sim.js) and circle it; when one steps to the next tile it
+   glides there over LEMUR_GLIDE ms (at once with reduced motion) */
+const LEMUR_GLIDE = 800, lemurSeen = new Map(), lemurGlide = new Map();
+function noteLemurSteps() {
+  for (const l of state.lemurs) {
+    const at = l.at || l.k, was = lemurSeen.get(l.s);
+    if (was && was !== at && !RM) lemurGlide.set(l.s, { from: was, t0: performance.now() });
+    lemurSeen.set(l.s, at);
+  }
+}
 function lemurPos(l, t) {
-  const home = state.map[l.k];
-  const c = home ? hexCenter(home.q, home.r) : hexCenter(...l.k.split(',').map(Number));
+  const at = l.at || l.k, cen = k => hexCenter(...k.split(',').map(Number));
+  let c = cen(at);
+  const g = lemurGlide.get(l.s);
+  if (g) {
+    const u = Math.min(1, (performance.now() - g.t0) / LEMUR_GLIDE), e = u * u * (3 - 2 * u), f = cen(g.from);
+    if (u >= 1) lemurGlide.delete(l.s); else { c = [f[0] + (c[0] - f[0]) * e, f[1] + (c[1] - f[1]) * e]; ui.dirty = true; }
+  }
   const ph = (l.s % 1000) / 1000 * Math.PI * 2, sp = 0.22 + (l.s % 7) * 0.03, dir = l.s % 2 ? 1 : -1;
   const tt = RM ? 0 : t;
   const a = ph + tt * sp * dir, rad = 0.45 + 0.12 * Math.sin(tt * 0.7 + ph);
