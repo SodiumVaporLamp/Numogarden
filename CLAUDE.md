@@ -233,6 +233,15 @@ It ran on seed sets 1000, 500000 and 900000 while building, then on the fresh se
 
 Reported without a line: doors opened per game by number and when each first opened, door dreams laid, come true and faded, the wild share at 300, 600 and 900 and wild wedges settled per game, Plex tiles granted and turned into stars, when each weirdness level arrives, and stars per game.
 
+**Lemurs pass line** (registered on 2026-10-30 for lemurs believing, before any of it was built, and confirmed by SVL). Every step of the build must pass:
+- The 300-placement line on every known set (seventeen), and the night pass line on its ten.
+- Perfect fits at most 7.4 per 300-placement greedy game on set 1000, the doors line, since rumors that come true add land.
+- Mean stars per 300-placement greedy game rise by at most 10% on every set.
+- With lemurs not walking (`LEMURS_WALK: false`), the saved results of tuning history 29 replay exactly.
+- When lemurs are done, both lines run once more on a fresh set, 6900000, untouched until then.
+
+Reported without a line: rumors and door dreams come true and faded per game, visitors per game, and how often a lemur stands beside a ghost.
+
 The harness prints the same criteria for the **zone-aware bot** (greedy plus `ZONEBONUS`, default 15, per syzygy it creates) as a diagnostic. It does not gate.
 
 **Current shares with no effects** (greedy, 300): Warp 52–53%, Hold 23–26%, Sink 10%, Plex 6–8%, Surge 7%. The zone bot evens them out (Warp 38%). See tuning history 8 for why Warp dominates. With effects on, the shares move by 6.8 points at most (Hold on the fresh set 6100000; 5.2 on 2100000). With settling wild land (tuning history 23) Hold rose 7.3 points on 500000, and 3.5 once doors reshuffled the random numbers (24), so a few points of it is chance; before settling the most was 4.8. Sink falls to about 5%, because wearing land down changes zones and breaks its own pairs. With Hold's calm eye covering loops (tuning history 27), Hold falls 4.8 to 8.3 points below its share before, to 14.2–15.5% with effects on, under its no-effects share, and Warp takes most of it: Warp rises 5.1 to 7.8 points over its no-effects share, the biggest rise on fifteen sets (Surge +4.4 on 6100000). Loops doubling their currents (tuning history 28) move each share by 2.5 points at most, and Warp's rise is 3.2 to 7.4 points.
