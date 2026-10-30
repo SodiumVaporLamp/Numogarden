@@ -2539,7 +2539,7 @@ const $ = id => document.getElementById(id);
 const cv = $('board'), ctx = cv.getContext('2d');
 const slotsEl = $('slots'), hintEl = $('hint'), toastsEl = $('toasts'), scrim = $('scrim'), sheet = $('sheet');
 
-let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {};
+let state = null, view = { info: {}, labels: [], seas: [] }, idMap = {}, currents = [], tint = {}, inCurrent = new Set();
 let townArt = new Map(), dcArt = new Map(), artList = []; // each town and data-centre tile's art, and every building and piece back to front (planned in refresh)
 let cam = { x: 0, y: 0, s: 46 };
 let W = 0, H = 0, dpr = 1;
@@ -2592,11 +2592,11 @@ function refresh() {
   view = S.view(state);
   ui.focus = null; // the land has changed, so a tapped town's highlight is stale
   // currents as the rules see them, with the tiles at each end and a light tint over each area
-  currents = []; tint = {};
+  currents = []; tint = {}; inCurrent = new Set(); // inCurrent: the tiles at either end of a current, lingering ones too
   for (const c of S.activeCurrents(state)) {
     const a = idMap[c.a], b = idMap[c.b]; if (!a || !b) continue;
     const col = REGION_COL[S.region(c.hi - c.lo)], area = S.currentArea(state, c);
-    currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) });
+    currents.push({ c, a, b, col, area: new Set(area.map(t => t.id)) }); inCurrent.add(a.id).add(b.id);
     for (const t of area) (tint[t.id] || (tint[t.id] = new Set())).add(col);
   }
   planArt();
@@ -3234,7 +3234,7 @@ function openInfo() {
         <li>Glowing wedges change on your next placement. A dashed tile is about to be laid${state.level >= 4 ? ': crimson by a metropolis, violet for a dream' : ' by a metropolis'}.</li>
         <li>Vines grow on hamlets and fields that are fading.</li>
         <li>A ghost tile is a rumor, and the number under it counts the neighbours that agree with it.${state.dcSince != null || state.stats.doorDreams ? ` Dreams are ghosts with drifting lines${state.stats.doorDreams ? ': violet from a data centre, crimson from a door' : ''}.` : ''}</li>
-        ${state.level >= 1 ? '<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.</li>' : ''}
+        ${state.level >= 1 ? `<li>The number on a tile is its zone. A current is a dashed line between its two tiles, with a light tint over the land it acts on.${state.level >= 4 ? ' At night only the zones of tiles with a current stay bright.' : ''}</li>` : ''}
         ${state.dcSince != null ? '<li>Data centres puff steam where they touch the sea. When one runs hot, its lights blink red and heat rises from the wedge that will fall next.</li>' : ''}
         ${(view.doors || []).some(d => d.open) || state.stats.doors ? '<li>An open door glows crimson.</li>' : ''}
         ${(view.roads || []).length || state.stats.roads ? `<li>A road starts as a dashed path and wears into a sandy road. Dots moving along it carry food to a hungry town. A green dashed road is overgrown.${state.level >= 4 ? ' At night old roads are lit.' : ''}</li>` : ''}
@@ -3709,6 +3709,7 @@ function drawLemurs(t) {
     ctx.beginPath(); ctx.arc(hx + 0.058, hy + 0.012, 0.009, 0, 7); ctx.fill();
   }
 }
+const IDLE_ZONE_ALPHA = 0.3; // a tile in no current shows its zone this faintly at night
 function drawText(now) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const L = state.level, s = cam.s;
@@ -3719,9 +3720,11 @@ function drawText(now) {
     for (const k in state.map) {
       const tl = state.map[k], c = hexCenter(tl.q, tl.r), [sx, sy] = toScreen(c[0], c[1]);
       if (sx < -s || sx > W + s || sy < -s || sy > H + s) continue;
+      ctx.globalAlpha = L >= 4 && !inCurrent.has(tl.id) ? IDLE_ZONE_ALPHA : 1; // at night only the live circuit's numerals stay bright
       ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.strokeText(String(tl.z), sx, sy);
       ctx.fillStyle = REGION_COL[S.region(tl.z)]; ctx.fillText(String(tl.z), sx, sy);
     }
+    ctx.globalAlpha = 1;
   }
   if (s >= 26) {
     ctx.font = `500 ${Math.round(Math.max(10, s * 0.22))}px "IBM Plex Mono", monospace`;
